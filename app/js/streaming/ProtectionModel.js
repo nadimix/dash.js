@@ -49,12 +49,12 @@ MediaPlayer.models.ProtectionModel = function () {
             return session;
         },
 
-        addKeySystem: function (kid, contentProtectionData, keySystemDesc) {
+        addKeySystem: function (kid, contentProtectionData, keySystemDesc, initData) {
             var keysLocal = null;
 
             keysLocal = this.protectionExt.createMediaKeys(keySystemDesc.keysTypeString);
 
-            this.protectionExt.setMediaKey(element, keysLocal);
+            this.protectionExt.setMediaKey(element, keysLocal, initData);
 
             keySystems[kid] = {
                 kID : kid,
@@ -93,8 +93,8 @@ MediaPlayer.models.ProtectionModel = function () {
             return keySystem.keySystem.getInitData(keySystem.contentProtection);
         },
 
-        updateFromMessage: function (kid, msg, laURL) {
-            return keySystems[kid].keySystem.getUpdate(msg, laURL);
+        updateFromMessage: function (kid, sessionId, rawMessage, uint16Message, laURL) {
+            return keySystems[kid].keySystem.getUpdate(sessionId, rawMessage, uint16Message, laURL, element);
         },
 /*
         addKey: function (type, key, data, id) {
@@ -124,6 +124,8 @@ MediaPlayer.models.ProtectionModel = function () {
         listenToKeyMessage: function(listener) {
             keyMessageListener = listener;
 
+			this.protectionExt.listenToVideoModelKeyMessage(this.videoModel, listener);
+			
             for(var ks = 0; ks < keySystems.length; ++ks) {
                 var keySessions = keySystems[ks].keySessions;
 

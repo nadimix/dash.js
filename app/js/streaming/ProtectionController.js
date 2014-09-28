@@ -21,7 +21,7 @@ MediaPlayer.dependencies.ProtectionController = function () {
             self.protectionModel.removeKeySystem(kid);
         },
 
-        selectKeySystem = function (codec, contentProtection) {
+        selectKeySystem = function (codec, contentProtection, initData) {
             var self = this;
 
             for(var ks = 0; ks < keySystems.length; ++ks) {
@@ -34,7 +34,7 @@ MediaPlayer.dependencies.ProtectionController = function () {
                             kid = "unknown";
                         }
 
-                        self.protectionModel.addKeySystem(kid, contentProtection[cp], keySystems[ks]);
+                        self.protectionModel.addKeySystem(kid, contentProtection[cp], keySystems[ks], initData);
 
                         self.debug.log("DRM: Selected Key System: " + keySystems[ks].keysTypeString + " For KID: " + kid);
 
@@ -73,10 +73,10 @@ MediaPlayer.dependencies.ProtectionController = function () {
             }
         },
 
-        updateFromMessage = function (kid, session, msg, laURL) {
+        updateFromMessage = function (kid, session, sessionId, msg, laURL) {
             var self = this,
                 result;
-            result = self.protectionModel.updateFromMessage(kid, msg, laURL);
+            result = self.protectionModel.updateFromMessage(kid, sessionId, msg, laURL, element);
             result.then(
                 function (data) {
                     session.update(data);

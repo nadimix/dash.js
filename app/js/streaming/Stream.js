@@ -84,19 +84,16 @@ MediaPlayer.dependencies.Stream = function () {
         // Encrypted Media Extensions
 
         onMediaSourceNeedsKey = function (event) {
-            var self = this,
-                type;
+            var self = this;
 
-            type = (event.type !== "msneedkey") ? event.type : videoCodec;
-            initData.push({type: type, initData: event.initData});
-
-            this.debug.log("DRM: Key required for - " + type);
-            //this.debug.log("DRM: Generating key request...");
-            //this.protectionModel.generateKeyRequest(DEFAULT_KEY_TYPE, event.initData);
+			initData.push({type: event.type, initData: event.initData});
+			
+            this.debug.log("DRM: Key required for - " + event.type);
+			
             if (!!contentProtection && !!videoCodec && !kid) {
                 try
                 {
-                    kid = self.protectionController.selectKeySystem(videoCodec, contentProtection);
+                    kid = self.protectionController.selectKeySystem(videoCodec, contentProtection, event.initData);
                 }
                 catch (error)
                 {
@@ -107,38 +104,32 @@ MediaPlayer.dependencies.Stream = function () {
             }
 
             if (!!kid) {
-                self.protectionController.ensureKeySession(kid, type, event.initData);
+                self.protectionController.ensureKeySession(kid, (event.type !== "msneedkey") ? event.type : videoCodec, event.initData);
             }
         },
 
         onMediaSourceKeyMessage = function (event) {
             var self = this,
                 session = null,
+                sessionId = null,
                 bytes = null,
-                msg = null,
+                uint16Message = null,
                 laURL = null;
 
             this.debug.log("DRM: Got a key message...");
+			
+			session = event.target;
+			sessionId = event.sessionId;
+			bytes = new Uint16Array(event.message.buffer);
+			uint16Message = String.fromCharCode.apply(null, bytes);
+			laURL = event.destinationURL;
 
-            session = event.target;
-            bytes = new Uint16Array(event.message.buffer);
-            msg = String.fromCharCode.apply(null, bytes);
-            laURL = event.destinationURL;
-
-            self.protectionController.updateFromMessage(kid, session, msg, laURL).fail(
-                function (error) {
-                    pause.call(self);
-                    self.debug.log(error);
-                    self.errHandler.mediaKeyMessageError(error);
-            });
-
-            //if (event.keySystem !== DEFAULT_KEY_TYPE) {
-            //    this.debug.log("DRM: Key type not supported!");
-            //}
-            // else {
-                // todo : request license?
-                //requestLicense(e.message, e.sessionId, this);
-            // }
+			self.protectionController.updateFromMessage(kid, session, sessionId, event.message, uint16Message, laURL).fail(
+				function (error) {
+					pause.call(self);
+					self.debug.log(error);
+					self.errHandler.mediaKeyMessageError(error);
+			});
         },
 
         onMediaSourceKeyAdded = function () {
