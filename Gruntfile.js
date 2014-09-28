@@ -47,6 +47,28 @@ module.exports = function(grunt) {
             "./app/js/dash/DashContext.js",
             "./app/js/*/**/*.js"]
         }
+      },
+      debug : {
+        options: {
+		  beautify: true,
+          compress: false,
+          mangle: false
+        },
+        files: {
+          "dash.debug.js" : [
+            "./app/lib/q.js",
+            "./app/lib/xml2json.js",
+            "./app/lib/objectiron.js",
+            "./app/lib/dijon.js",
+            "./app/lib/Math.js",
+            "./app/lib/long.js",
+            "./app/lib/base64.js",
+            "./app/js/streaming/MediaPlayer.js",
+            "./app/js/streaming/Context.js",
+            "./app/js/dash/Dash.js",
+            "./app/js/dash/DashContext.js",
+            "./app/js/*/**/*.js"]
+        }
       }
     },
     jasmine: {
@@ -100,8 +122,9 @@ module.exports = function(grunt) {
             coverage: 'reports/coverage.json',
             report: 'reports/coverage'},
           junit: {
-              path: grunt.option('jsunit-path'),
-              consolidate: true}
+			path: grunt.option('jsunit-path'),
+			consolidate: true
+		  }
         }
       }
     }
