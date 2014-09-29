@@ -29,7 +29,7 @@ MediaPlayer.dependencies.ProtectionController = function () {
                     if (keySystems[ks].isSupported(contentProtection[cp]) &&
                         self.protectionExt.supportsCodec(keySystems[ks].keysTypeString, codec)) {
 
-                        var kid = contentProtection[cp].KID;
+                        var kid = self.manifestExt.getKID(contentProtection[cp]);
                         if (!kid) {
                             kid = "unknown";
                         }
@@ -73,10 +73,10 @@ MediaPlayer.dependencies.ProtectionController = function () {
             }
         },
 
-        updateFromMessage = function (kid, session, sessionId, msg, laURL) {
+        updateFromMessage = function (kid, session, sessionId, rawMessage, uint16Message, laURL) {
             var self = this,
                 result;
-            result = self.protectionModel.updateFromMessage(kid, sessionId, msg, laURL, element);
+            result = self.protectionModel.updateFromMessage(kid, sessionId, rawMessage, uint16Message, laURL);
             result.then(
                 function (data) {
                     session.update(data);
@@ -87,7 +87,9 @@ MediaPlayer.dependencies.ProtectionController = function () {
     return {
         system : undefined,
         debug : undefined,
+        manifestExt : undefined,
         capabilities : undefined,
+        videoModel : undefined,
         protectionModel : undefined,
         protectionExt : undefined,
 
