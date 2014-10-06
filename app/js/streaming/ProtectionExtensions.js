@@ -90,13 +90,13 @@ MediaPlayer.dependencies.ProtectionExtensions.prototype = {
 			'com.widevine.alpha': null
 		};
 		
-        var playreadyGetUpdate = function (sessionId, rawMessage, uint16Message, laURL, element) {
+        var playreadyGetUpdate = function (sessionId, rawMessage, laURL, element) {
 			//jshint unused:false
 			var deferred = Q.defer(),
 				decodedChallenge = null,
 				headers = [],
 				parser = new DOMParser(),
-				xmlDoc = parser.parseFromString(uint16Message, "application/xml");
+				xmlDoc = parser.parseFromString(String.fromCharCode.apply(null, new Uint16Array(rawMessage.buffer)), "application/xml");
 
 			if (xmlDoc.getElementsByTagName("Challenge")[0]) {
 				var Challenge = xmlDoc.getElementsByTagName("Challenge")[0].childNodes[0].nodeValue;
@@ -296,15 +296,17 @@ MediaPlayer.dependencies.ProtectionExtensions.prototype = {
                 schemeIdUri: "urn:uuid:00000000-0000-0000-0000-000000000000",
                 keysTypeString: "webkit-org.w3.clearkey",
                 isSupported: function (data) {
-                    return this.schemeIdUri === data.schemeIdUri.toLowerCase();},
+                    return this.schemeIdUri === data.schemeIdUri.toLowerCase();
+				},
                 needToAddKeySession: function (/*initData, keySessions*/) {
                     return true;
 				},
                 getInitData: function (/*data*/) {
-                    return null;},
-                getUpdate: function (sessionId, rawMessage, uint16Message, laURL, element) {
+                    return null;
+				},
+                getUpdate: function (sessionId, rawMessage, laURL, element) {
 					//jshint unused:false
-                    return Q.when(uint16Message);
+                    return Q.when(rawMessage);
                 },
 				laUrl: function (_laUrl) {
 					if (!String.isNullOrEmpty(_laUrl)) {
@@ -325,14 +327,15 @@ MediaPlayer.dependencies.ProtectionExtensions.prototype = {
                 schemeIdUri: "urn:uuid:edef8ba9-79d6-4ace-a3c8-27dcd51d21ed",
                 keysTypeString: "com.widevine.alpha",
                 isSupported: function (data) {
-                    return this.schemeIdUri === data.schemeIdUri.toLowerCase();},
+                    return this.schemeIdUri === data.schemeIdUri.toLowerCase();
+				},
                 needToAddKeySession: function (/*initData, keySessions*/) {
                     return false;
 				},
                 getInitData: function (/*data*/) {
                     return null;
 				},
-                getUpdate: function (sessionId, rawMessage, uint16Message, laURL, element) {
+                getUpdate: function (sessionId, rawMessage, laURL, element) {
 					//jshint unused:false
 					var deferred = Q.defer(),
 						xhr = new XMLHttpRequest();

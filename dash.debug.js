@@ -6831,9 +6831,9 @@ MediaPlayer.dependencies.ProtectionController = function() {
         } else {
             self.debug.log("DRM: initdata is null.");
         }
-    }, updateFromMessage = function(kid, session, sessionId, rawMessage, uint16Message, laURL) {
+    }, updateFromMessage = function(kid, session, sessionId, rawMessage, laURL) {
         var self = this, result;
-        result = self.protectionModel.updateFromMessage(kid, sessionId, rawMessage, uint16Message, laURL);
+        result = self.protectionModel.updateFromMessage(kid, sessionId, rawMessage, laURL);
         result.then(function(data) {
             session.update(data);
         });
@@ -6918,14 +6918,14 @@ MediaPlayer.dependencies.ProtectionExtensions.prototype = {
     },
     getKeySystems: function() {
         var laUrlOverrides = laUrlOverrides || {
-            "com.microsoft.playready": "https://dev.license.playready.drm.qbrick.com/v1.0/License",
-            "com.widevine.alpha": "http://10.51.1.90/"
+            "com.microsoft.playready": null,
+            "com.widevine.alpha": null
         }, cdmDataOverrides = cdmDataOverrides || {
-            "com.microsoft.playready": '<PlayReadyCDMData type="LicenseAcquisition"><LicenseAcquisition version="1.0"><CustomData encoding="base64encoded">PABMAGkAYwBlAG4AcwBlAFIAZQBxAHUAZQBzAHQAPgA8AEwAaQBjAGUAbgBzAGUAVAB5AHAAZQA+AE4AbwBuAFAAZQByAHMAaQBzAHQAZQBuAHQAPAAvAEwAaQBjAGUAbgBzAGUAVAB5AHAAZQA+ADwALwBMAGkAYwBlAG4AcwBlAFIAZQBxAHUAZQBzAHQAPgA=</CustomData></LicenseAcquisition></PlayReadyCDMData>',
+            "com.microsoft.playready": null,
             "com.widevine.alpha": null
         };
-        var playreadyGetUpdate = function(sessionId, rawMessage, uint16Message, laURL, element) {
-            var deferred = Q.defer(), decodedChallenge = null, headers = [], parser = new DOMParser(), xmlDoc = parser.parseFromString(uint16Message, "application/xml");
+        var playreadyGetUpdate = function(sessionId, rawMessage, laURL, element) {
+            var deferred = Q.defer(), decodedChallenge = null, headers = [], parser = new DOMParser(), xmlDoc = parser.parseFromString(String.fromCharCode.apply(null, new Uint16Array(rawMessage.buffer)), "application/xml");
             if (xmlDoc.getElementsByTagName("Challenge")[0]) {
                 var Challenge = xmlDoc.getElementsByTagName("Challenge")[0].childNodes[0].nodeValue;
                 if (Challenge) {
@@ -7078,8 +7078,8 @@ MediaPlayer.dependencies.ProtectionExtensions.prototype = {
             getInitData: function() {
                 return null;
             },
-            getUpdate: function(sessionId, rawMessage, uint16Message, laURL, element) {
-                return Q.when(uint16Message);
+            getUpdate: function(sessionId, rawMessage, laURL, element) {
+                return Q.when(rawMessage);
             },
             laUrl: function(_laUrl) {
                 if (!String.isNullOrEmpty(_laUrl)) {
@@ -7105,7 +7105,7 @@ MediaPlayer.dependencies.ProtectionExtensions.prototype = {
             getInitData: function() {
                 return null;
             },
-            getUpdate: function(sessionId, rawMessage, uint16Message, laURL, element) {
+            getUpdate: function(sessionId, rawMessage, laURL, element) {
                 var deferred = Q.defer(), xhr = new XMLHttpRequest();
                 xhr.open("POST", laURL, true);
                 xhr.responseType = "arraybuffer";
@@ -7254,8 +7254,8 @@ MediaPlayer.models.ProtectionModel = function() {
             keySystem = keySystems[kid];
             return keySystem.keySystem.getInitData(keySystem.contentProtection);
         },
-        updateFromMessage: function(kid, sessionId, rawMessage, uint16Message, laURL) {
-            return keySystems[kid].keySystem.getUpdate(sessionId, rawMessage, uint16Message, !String.isNullOrEmpty(keySystems[kid].keySystem.laUrl()) ? keySystems[kid].keySystem.laUrl() : laURL, element);
+        updateFromMessage: function(kid, sessionId, rawMessage, laURL) {
+            return keySystems[kid].keySystem.getUpdate(sessionId, rawMessage, !String.isNullOrEmpty(keySystems[kid].keySystem.laUrl()) ? keySystems[kid].keySystem.laUrl() : laURL, element);
         },
         listenToNeedKey: function(listener) {
             this.protectionExt.listenToNeedKey(this.videoModel, listener);
@@ -7744,14 +7744,12 @@ MediaPlayer.dependencies.Stream = function() {
             self.protectionController.ensureKeySession(kid, event.type !== "msneedkey" ? event.type : videoCodec, event.initData);
         }
     }, onMediaSourceKeyMessage = function(event) {
-        var self = this, session = null, sessionId = null, bytes = null, uint16Message = null, laURL = null;
+        var self = this, session = null, sessionId = null, laURL = null;
         this.debug.log("DRM: Got a key message...");
         session = event.target;
         sessionId = event.sessionId;
-        bytes = new Uint16Array(event.message.buffer);
-        uint16Message = String.fromCharCode.apply(null, bytes);
         laURL = event.destinationURL;
-        self.protectionController.updateFromMessage(kid, session, sessionId, event.message, uint16Message, laURL).fail(function(error) {
+        self.protectionController.updateFromMessage(kid, session, sessionId, event.message, laURL).fail(function(error) {
             pause.call(self);
             self.debug.log(error);
             self.errHandler.mediaKeyMessageError(error);
