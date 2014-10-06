@@ -112,19 +112,15 @@ MediaPlayer.dependencies.Stream = function () {
             var self = this,
                 session = null,
                 sessionId = null,
-                bytes = null,
-                uint16Message = null,
                 laURL = null;
 
             this.debug.log("DRM: Got a key message...");
 			
 			session = event.target;
 			sessionId = event.sessionId;
-			bytes = new Uint16Array(event.message.buffer);
-			uint16Message = String.fromCharCode.apply(null, bytes);
 			laURL = event.destinationURL;
-
-			self.protectionController.updateFromMessage(kid, session, sessionId, event.message, uint16Message, laURL).fail(
+			
+			self.protectionController.updateFromMessage(kid, session, sessionId, event.message, laURL).fail(
 				function (error) {
 					pause.call(self);
 					self.debug.log(error);

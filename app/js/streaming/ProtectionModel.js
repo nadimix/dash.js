@@ -94,8 +94,8 @@ MediaPlayer.models.ProtectionModel = function () {
             return keySystem.keySystem.getInitData(keySystem.contentProtection);
         },
 
-        updateFromMessage: function (kid, sessionId, rawMessage, uint16Message, laURL) {
-            return keySystems[kid].keySystem.getUpdate(sessionId, rawMessage, uint16Message, !String.isNullOrEmpty(keySystems[kid].keySystem.laUrl()) ? keySystems[kid].keySystem.laUrl() : laURL, element);
+        updateFromMessage: function (kid, sessionId, rawMessage, laURL) {
+            return keySystems[kid].keySystem.getUpdate(sessionId, rawMessage, !String.isNullOrEmpty(keySystems[kid].keySystem.laUrl()) ? keySystems[kid].keySystem.laUrl() : laURL, element);
         },
 /*
         addKey: function (type, key, data, id) {
