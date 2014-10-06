@@ -6910,10 +6910,20 @@ MediaPlayer.dependencies.ProtectionExtensions.prototype = {
             this.debug.log("no setmediakeys function in element");
         }
     },
-    createSession: function(mediaKeys, mediaCodec, initData) {
+    createSession: function(mediaKeys, mediaCodec, initData, cdmData) {
+        if (null !== cdmData) {
+            return mediaKeys.createSession(mediaCodec, initData, cdmData);
+        }
         return mediaKeys.createSession(mediaCodec, initData);
     },
     getKeySystems: function() {
+        var laUrlOverrides = laUrlOverrides || {
+            "com.microsoft.playready": "https://dev.license.playready.drm.qbrick.com/v1.0/License",
+            "com.widevine.alpha": "http://10.51.1.90/"
+        }, cdmDataOverrides = cdmDataOverrides || {
+            "com.microsoft.playready": '<PlayReadyCDMData type="LicenseAcquisition"><LicenseAcquisition version="1.0"><CustomData encoding="base64encoded">PABMAGkAYwBlAG4AcwBlAFIAZQBxAHUAZQBzAHQAPgA8AEwAaQBjAGUAbgBzAGUAVAB5AHAAZQA+AE4AbwBuAFAAZQByAHMAaQBzAHQAZQBuAHQAPAAvAEwAaQBjAGUAbgBzAGUAVAB5AHAAZQA+ADwALwBMAGkAYwBlAG4AcwBlAFIAZQBxAHUAZQBzAHQAPgA=</CustomData></LicenseAcquisition></PlayReadyCDMData>',
+            "com.widevine.alpha": null
+        };
         var playreadyGetUpdate = function(sessionId, rawMessage, uint16Message, laURL, element) {
             var deferred = Q.defer(), decodedChallenge = null, headers = [], parser = new DOMParser(), xmlDoc = parser.parseFromString(uint16Message, "application/xml");
             if (xmlDoc.getElementsByTagName("Challenge")[0]) {
@@ -6996,7 +7006,31 @@ MediaPlayer.dependencies.ProtectionExtensions.prototype = {
             },
             needToAddKeySession: playReadyNeedToAddKeySession,
             getInitData: playreadyGetInitData,
-            getUpdate: playreadyGetUpdate
+            getUpdate: playreadyGetUpdate,
+            laUrl: function(_laUrl) {
+                if (!String.isNullOrEmpty(_laUrl)) {
+                    laUrlOverrides[this.keysTypeString] = _laUrl;
+                }
+                return laUrlOverrides[this.keysTypeString];
+            },
+            cdmData: function(_cdmData) {
+                if (!String.isNullOrEmpty(_cdmData)) {
+                    cdmDataOverrides[this.keysTypeString] = _cdmData;
+                }
+                if (null === cdmDataOverrides[this.keysTypeString]) {
+                    return null;
+                }
+                var cdmDataArray = [], charCode;
+                cdmDataArray.push(239);
+                cdmDataArray.push(187);
+                cdmDataArray.push(191);
+                for (var i = 0, j = cdmDataOverrides[this.keysTypeString].length; i < j; ++i) {
+                    charCode = cdmDataOverrides[this.keysTypeString].charCodeAt(i);
+                    cdmDataArray.push((charCode & 65280) >> 8);
+                    cdmDataArray.push(charCode & 255);
+                }
+                return new Uint8Array(cdmDataArray);
+            }
         }, {
             schemeIdUri: "urn:mpeg:dash:mp4protection:2011",
             keysTypeString: "com.microsoft.playready",
@@ -7007,7 +7041,31 @@ MediaPlayer.dependencies.ProtectionExtensions.prototype = {
             getInitData: function() {
                 return null;
             },
-            getUpdate: playreadyGetUpdate
+            getUpdate: playreadyGetUpdate,
+            laUrl: function(_laUrl) {
+                if (!String.isNullOrEmpty(_laUrl)) {
+                    laUrlOverrides[this.keysTypeString] = _laUrl;
+                }
+                return laUrlOverrides[this.keysTypeString];
+            },
+            cdmData: function(_cdmData) {
+                if (!String.isNullOrEmpty(_cdmData)) {
+                    cdmDataOverrides[this.keysTypeString] = _cdmData;
+                }
+                if (null === cdmDataOverrides[this.keysTypeString]) {
+                    return null;
+                }
+                var cdmDataArray = [], charCode;
+                cdmDataArray.push(239);
+                cdmDataArray.push(187);
+                cdmDataArray.push(191);
+                for (var i = 0, j = cdmDataOverrides[this.keysTypeString].length; i < j; ++i) {
+                    charCode = cdmDataOverrides[this.keysTypeString].charCodeAt(i);
+                    cdmDataArray.push((charCode & 65280) >> 8);
+                    cdmDataArray.push(charCode & 255);
+                }
+                return new Uint8Array(cdmDataArray);
+            }
         }, {
             schemeIdUri: "urn:uuid:00000000-0000-0000-0000-000000000000",
             keysTypeString: "webkit-org.w3.clearkey",
@@ -7022,6 +7080,18 @@ MediaPlayer.dependencies.ProtectionExtensions.prototype = {
             },
             getUpdate: function(sessionId, rawMessage, uint16Message, laURL, element) {
                 return Q.when(uint16Message);
+            },
+            laUrl: function(_laUrl) {
+                if (!String.isNullOrEmpty(_laUrl)) {
+                    laUrlOverrides[this.keysTypeString] = _laUrl;
+                }
+                return laUrlOverrides[this.keysTypeString];
+            },
+            cdmData: function(_cdmData) {
+                if (!String.isNullOrEmpty(_cdmData)) {
+                    cdmDataOverrides[this.keysTypeString] = _cdmData;
+                }
+                return cdmDataOverrides[this.keysTypeString];
             }
         }, {
             schemeIdUri: "urn:uuid:edef8ba9-79d6-4ace-a3c8-27dcd51d21ed",
@@ -7036,9 +7106,8 @@ MediaPlayer.dependencies.ProtectionExtensions.prototype = {
                 return null;
             },
             getUpdate: function(sessionId, rawMessage, uint16Message, laURL, element) {
-                var deferred = Q.defer();
-                var xhr = new XMLHttpRequest();
-                xhr.open("POST", "http://10.51.1.90/", true);
+                var deferred = Q.defer(), xhr = new XMLHttpRequest();
+                xhr.open("POST", laURL, true);
                 xhr.responseType = "arraybuffer";
                 xhr.onload = function(e) {
                     if (xhr.status == 200) {
@@ -7057,6 +7126,18 @@ MediaPlayer.dependencies.ProtectionExtensions.prototype = {
                 };
                 xhr.send(rawMessage);
                 return deferred.promise;
+            },
+            laUrl: function(_laUrl) {
+                if (!String.isNullOrEmpty(_laUrl)) {
+                    laUrlOverrides[this.keysTypeString] = _laUrl;
+                }
+                return laUrlOverrides[this.keysTypeString];
+            },
+            cdmData: function(_cdmData) {
+                if (!String.isNullOrEmpty(_cdmData)) {
+                    cdmDataOverrides[this.keysTypeString] = _cdmData;
+                }
+                return cdmDataOverrides[this.keysTypeString];
             }
         } ];
     },
@@ -7096,6 +7177,11 @@ MediaPlayer.dependencies.ProtectionExtensions.prototype = {
         source.removeEventListener("mskeyerror", listener);
         source.removeEventListener("keyerror", listener);
     },
+    unlistenToVideoModelKeyMessage: function(videoModel, listener) {
+        videoModel.removeEventListener("webkitkeymessage", listener);
+        videoModel.removeEventListener("mskeymessage", listener);
+        videoModel.removeEventListener("keymessage", listener);
+    },
     unlistenToKeyMessage: function(source, listener) {
         source.removeEventListener("webkitkeymessage", listener);
         source.removeEventListener("mskeymessage", listener);
@@ -7124,7 +7210,7 @@ MediaPlayer.models.ProtectionModel = function() {
         },
         addKeySession: function(kid, mediaCodec, initData) {
             var session = null;
-            session = this.protectionExt.createSession(keySystems[kid].keys, mediaCodec, initData);
+            session = this.protectionExt.createSession(keySystems[kid].keys, mediaCodec, initData, keySystems[kid].keySystem.cdmData());
             this.protectionExt.listenToKeyAdded(session, keyAddedListener);
             this.protectionExt.listenToKeyError(session, keyErrorListener);
             this.protectionExt.listenToKeyMessage(session, keyMessageListener);
@@ -7147,6 +7233,7 @@ MediaPlayer.models.ProtectionModel = function() {
         },
         removeKeySystem: function(kid) {
             if (kid !== null && keySystems[kid] !== undefined && keySystems[kid].keySessions.length !== 0) {
+                this.protectionExt.unlistenToVideoModelKeyMessage(this.videoModel, keyMessageListener);
                 var keySessions = keySystems[kid].keySessions;
                 for (var kss = 0; kss < keySessions.length; ++kss) {
                     this.protectionExt.unlistenToKeyError(keySessions[kss], keyErrorListener);
@@ -7168,7 +7255,7 @@ MediaPlayer.models.ProtectionModel = function() {
             return keySystem.keySystem.getInitData(keySystem.contentProtection);
         },
         updateFromMessage: function(kid, sessionId, rawMessage, uint16Message, laURL) {
-            return keySystems[kid].keySystem.getUpdate(sessionId, rawMessage, uint16Message, laURL, element);
+            return keySystems[kid].keySystem.getUpdate(sessionId, rawMessage, uint16Message, !String.isNullOrEmpty(keySystems[kid].keySystem.laUrl()) ? keySystems[kid].keySystem.laUrl() : laURL, element);
         },
         listenToNeedKey: function(listener) {
             this.protectionExt.listenToNeedKey(this.videoModel, listener);
@@ -8464,6 +8551,10 @@ MediaPlayer.dependencies.StreamController = function() {
 
 MediaPlayer.dependencies.StreamController.prototype = {
     constructor: MediaPlayer.dependencies.StreamController
+};
+
+String.isNullOrEmpty = function(str, _undefined) {
+    return str === null || str === _undefined || str === "undefined" || str === "";
 };
 
 MediaPlayer.utils.TokenAuthentication = function() {

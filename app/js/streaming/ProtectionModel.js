@@ -37,7 +37,7 @@ MediaPlayer.models.ProtectionModel = function () {
         addKeySession: function (kid, mediaCodec, initData) {
             var session = null;
 
-            session = this.protectionExt.createSession(keySystems[kid].keys, mediaCodec, initData);
+            session = this.protectionExt.createSession(keySystems[kid].keys, mediaCodec, initData, keySystems[kid].keySystem.cdmData());
 
             this.protectionExt.listenToKeyAdded(session, keyAddedListener);
             this.protectionExt.listenToKeyError(session, keyErrorListener);
@@ -68,9 +68,10 @@ MediaPlayer.models.ProtectionModel = function () {
 
         removeKeySystem: function (kid) {
             if (kid !== null && keySystems[kid] !== undefined && keySystems[kid].keySessions.length !== 0) {
+				this.protectionExt.unlistenToVideoModelKeyMessage(this.videoModel, keyMessageListener);
+                
                 var keySessions = keySystems[kid].keySessions;
-
-                for(var kss = 0; kss < keySessions.length; ++kss) {
+				for(var kss = 0; kss < keySessions.length; ++kss) {
                     this.protectionExt.unlistenToKeyError(keySessions[kss], keyErrorListener);
                     this.protectionExt.unlistenToKeyAdded(keySessions[kss], keyAddedListener);
                     this.protectionExt.unlistenToKeyMessage(keySessions[kss], keyMessageListener);
@@ -94,7 +95,7 @@ MediaPlayer.models.ProtectionModel = function () {
         },
 
         updateFromMessage: function (kid, sessionId, rawMessage, uint16Message, laURL) {
-            return keySystems[kid].keySystem.getUpdate(sessionId, rawMessage, uint16Message, laURL, element);
+            return keySystems[kid].keySystem.getUpdate(sessionId, rawMessage, uint16Message, !String.isNullOrEmpty(keySystems[kid].keySystem.laUrl()) ? keySystems[kid].keySystem.laUrl() : laURL, element);
         },
 /*
         addKey: function (type, key, data, id) {
