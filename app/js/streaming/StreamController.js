@@ -25,7 +25,13 @@
         STREAM_BUFFER_END_THRESHOLD = 6,
         STREAM_END_THRESHOLD = 0.2,
         autoPlay = true,
-        isStreamSwitchingInProgress = false,
+        isPeriodSwitchingInProgress = false,
+		protectionData,
+        timeupdateListener,
+        seekingListener,
+        progressListener,
+        pauseListener,
+        playListener,
 
         play = function () {
             activeStream.play();
@@ -247,7 +253,6 @@
                         if (streams[sIdx].getId() === streamInfo.id) {
                             stream = streams[sIdx];
                             stream.updateData(streamInfo);
-                        }
                     }
                     // If the Stream object does not exist we probably loaded the manifest the first time or it was
                     // introduced in the updated manifest, so we need to create a new Stream and perform all the initialization operations
@@ -259,7 +264,7 @@
                         stream.setPlaybackController(playbackCtrl);
                         playbackCtrl.subscribe(playbackCtrl.eventList.ENAME_PLAYBACK_ERROR, stream);
                         playbackCtrl.subscribe(playbackCtrl.eventList.ENAME_PLAYBACK_METADATA_LOADED, stream);
-                        stream.initProtection();
+                        stream.initProtection(protectionData);
                         stream.setAutoPlay(autoPlay);
                         stream.load(manifest);
                         stream.subscribe(stream.eventList.ENAME_STREAM_UPDATED, self);
@@ -349,7 +354,11 @@
         setVideoModel: function (value) {
             this.videoModel = value;
         },
-
+		
+		setProtectionData: function (value) {
+			protectionData = value;
+		},
+		
         load: function (url) {
             this.manifestLoader.load(url);
         },

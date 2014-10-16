@@ -860,7 +860,7 @@ MediaPlayer.dependencies.Stream = function () {
             this.requestScheduler.videoModel = value;
         },
 
-        initProtection: function() {
+        initProtection: function(protectionData) {
             needKeyListener = onMediaSourceNeedsKey.bind(this);
             keyMessageListener = onMediaSourceKeyMessage.bind(this);
             keyAddedListener = onMediaSourceKeyAdded.bind(this);
@@ -869,7 +869,7 @@ MediaPlayer.dependencies.Stream = function () {
             this.protectionModel = this.system.getObject("protectionModel");
             this.protectionModel.init(this.getVideoModel());
             this.protectionController = this.system.getObject("protectionController");
-            this.protectionController.init(this.videoModel, this.protectionModel);
+            this.protectionController.init(this.videoModel, this.protectionModel, protectionData);
 
             this.protectionModel.listenToNeedKey(needKeyListener);
             this.protectionModel.listenToKeyMessage(keyMessageListener);

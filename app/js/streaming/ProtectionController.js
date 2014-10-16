@@ -93,11 +93,10 @@ MediaPlayer.dependencies.ProtectionController = function () {
         protectionModel : undefined,
         protectionExt : undefined,
 
-        setup : function () {
-            keySystems = this.protectionExt.getKeySystems();
-        },
+        setup : function () { },
 
-        init: function (videoModel, protectionModel) {
+        init: function (videoModel, protectionModel, protectionData) {
+            keySystems = this.protectionExt.getKeySystems(protectionData);
             this.videoModel = videoModel;
             this.protectionModel = protectionModel;
             element = this.videoModel.getElement();

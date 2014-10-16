@@ -60,7 +60,8 @@ MediaPlayer = function (aContext) {
         playing = false,
         autoPlay = true,
         scheduleWhilePaused = false,
-        bufferMax = MediaPlayer.dependencies.BufferController.BUFFER_SIZE_REQUIRED,
+		protectionData,
+        bufferMax = MediaPlayer.dependencies.BufferExtensions.BUFFER_SIZE_REQUIRED,
 
         isReady = function () {
             return (!!element && !!source);
@@ -87,6 +88,7 @@ MediaPlayer = function (aContext) {
             manifestLoader.subscribe(manifestLoader.eventList.ENAME_MANIFEST_LOADED, streamController);
             manifestLoader.subscribe(manifestLoader.eventList.ENAME_MANIFEST_LOADED, manifestUpdater);
             streamController.setVideoModel(videoModel);
+			streamController.setProtectionData(protectionData);
             streamController.setAutoPlay(autoPlay);
             streamController.load(source);
 
@@ -306,6 +308,14 @@ MediaPlayer = function (aContext) {
          * @param value
          * @memberof MediaPlayer#
          */
+		setProtectionData: function (value) {
+			protectionData = value;
+		},
+		
+        /**
+         * @param value
+         * @memberof MediaPlayer#
+         */
         setAutoPlay: function (value) {
             autoPlay = value;
         },
@@ -342,12 +352,17 @@ MediaPlayer = function (aContext) {
         setTokenAuthentication:function(name, type) {
             this.tokenAuthentication.setTokenAuthentication({name:name, type:type});
         },
+<<<<<<< HEAD
 
         /**
          * @param value
          * @memberof MediaPlayer#
          */
         setBufferMax: function(value) {
+=======
+        
+		setBufferMax: function(value) {
+>>>>>>> ProtectionData configurable through MediaPlayer
             bufferMax = value;
         },
 

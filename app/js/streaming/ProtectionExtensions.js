@@ -80,15 +80,20 @@ MediaPlayer.dependencies.ProtectionExtensions.prototype = {
 		return mediaKeys.createSession(mediaCodec, initData);
     },
 
-    getKeySystems: function () {
-		var laUrlOverrides = laUrlOverrides || {
+    getKeySystems: function (protectionData) {
+		var laUrlOverrides = {
 			'com.microsoft.playready': null,
 			'com.widevine.alpha': null
 		},
-		cdmDataOverrides = cdmDataOverrides || {
+		cdmDataOverrides = {
 			'com.microsoft.playready': null,
 			'com.widevine.alpha': null
 		};
+		
+		if ('undefined' !== typeof (protectionData) && null !== protectionData) {
+			laUrlOverrides = protectionData.laUrlOverrides || laUrlOverrides;
+			cdmDataOverrides = protectionData.cdmDataOverrides || cdmDataOverrides;
+		}
 		
         var playreadyGetUpdate = function (sessionId, rawMessage, laURL, element) {
 			//jshint unused:false
