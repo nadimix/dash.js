@@ -16,6 +16,12 @@ MediaPlayer.dependencies.ProtectionExtensions = function () {
 
 MediaPlayer.dependencies.ProtectionExtensions.prototype = {
     constructor: MediaPlayer.dependencies.ProtectionExtensions,
+    notify: undefined,
+    subscribe: undefined,
+    unsubscribe: undefined,
+    eventList: {
+        ENAME_KEY_SYSTEM_UPDATE_COMPLETED: "keySystemUpdateCompleted"
+    },
 
     supportsCodec: function (mediaKeysString, codec) {
         "use strict";
@@ -81,138 +87,133 @@ MediaPlayer.dependencies.ProtectionExtensions.prototype = {
     },
 
     getKeySystems: function (protectionData) {
-		var laUrlOverrides = {
-			'com.microsoft.playready': null,
-			'com.widevine.alpha': null
-		},
-		cdmDataOverrides = {
-			'com.microsoft.playready': null,
-			'com.widevine.alpha': null
-		};
+        var self = this,
+			laUrlOverrides = {
+				'com.microsoft.playready': null,
+				'com.widevine.alpha': null
+			},
+			cdmDataOverrides = {
+				'com.microsoft.playready': null,
+				'com.widevine.alpha': null
+			},
+            playreadyGetUpdate = function (sessionId, rawMessage, laURL, element) {
+				//jshint unused:false
+				var decodedChallenge = null,
+					headers = [],
+					parser = new DOMParser(),
+					xmlDoc = parser.parseFromString(String.fromCharCode.apply(null, new Uint16Array(rawMessage.buffer)), "application/xml");
+
+                if (xmlDoc.getElementsByTagName("Challenge")[0]) {
+                    var Challenge = xmlDoc.getElementsByTagName("Challenge")[0].childNodes[0].nodeValue;
+                    if (Challenge) {
+                        decodedChallenge = BASE64.decode(Challenge);
+                    }
+                }
+                else {
+                    self.notify(self.eventList.ENAME_KEY_SYSTEM_UPDATE_COMPLETED, null, new Error('DRM: playready update, can not find Challenge in keyMessage'));
+                }
+
+                var headerNameList = xmlDoc.getElementsByTagName("name");
+                var headerValueList = xmlDoc.getElementsByTagName("value");
+
+                if (headerNameList.length != headerValueList.length) {
+                    self.notify(self.eventList.ENAME_KEY_SYSTEM_UPDATE_COMPLETED, null, new Error('DRM: playready update, invalid header name/value pair in keyMessage'));
+                }
+
+                for (var i = 0; i < headerNameList.length; i++) {
+                    headers[i] = {
+                        name: headerNameList[i].childNodes[0].nodeValue,
+                        value: headerValueList[i].childNodes[0].nodeValue
+                    };
+                }
+
+                var xhr = new XMLHttpRequest();
+                xhr.onload = function () {
+                    if (xhr.status == 200) {
+                        self.notify(self.eventList.ENAME_KEY_SYSTEM_UPDATE_COMPLETED, new Uint8Array(xhr.response));
+                    } else {
+                        self.notify(self.eventList.ENAME_KEY_SYSTEM_UPDATE_COMPLETED, null, new Error('DRM: playready update, XHR status is "' + xhr.statusText + '" (' + xhr.status + '), expected to be 200. readyState is ' + xhr.readyState));
+                    }
+                };
+                xhr.onabort = function () {
+                    self.notify(self.eventList.ENAME_KEY_SYSTEM_UPDATE_COMPLETED, null, new Error('DRM: playready update, XHR aborted. status is "' + xhr.statusText + '" (' + xhr.status + '), readyState is ' + xhr.readyState));
+                };
+                xhr.onerror = function () {
+                    self.notify(self.eventList.ENAME_KEY_SYSTEM_UPDATE_COMPLETED, null, new Error('DRM: playready update, XHR error. status is "' + xhr.statusText + '" (' + xhr.status + '), readyState is ' + xhr.readyState));
+                };
+
+                xhr.open('POST', laURL);
+                xhr.responseType = 'arraybuffer';
+                if (headers) {
+                    headers.forEach(function(hdr) {
+                        xhr.setRequestHeader(hdr.name, hdr.value);
+                    });
+                }
+                xhr.send(decodedChallenge);
+            },
+            playReadyNeedToAddKeySession = function (initData, keySessions) {
+                return initData === null && keySessions.length === 0;
+            },
+            playreadyGetInitData = function (data) {
+				// * desc@ getInitData
+				// *   generate PSSH data from PROHeader defined in MPD file
+				// *   PSSH format:
+				// *   size (4)
+				// *   box type(PSSH) (8)
+				// *   Protection SystemID (16)
+				// *   protection system data size (4) - length of decoded PROHeader
+				// *   decoded PROHeader data from MPD file  
+				var byteCursor = 0,
+					PROSize = 0,
+					PSSHSize = 0,
+					PSSHBoxType =  new Uint8Array([0x70, 0x73, 0x73, 0x68, 0x00, 0x00, 0x00, 0x00 ]), //'PSSH' 8 bytes
+					playreadySystemID = new Uint8Array([0x9a, 0x04, 0xf0, 0x79, 0x98, 0x40, 0x42, 0x86, 0xab, 0x92, 0xe6, 0x5b, 0xe0, 0x88, 0x5f, 0x95]),
+					uint8arraydecodedPROHeader = null,
+					PSSHBoxBuffer = null,
+					PSSHBox = null,
+					PSSHData = null;
+
+				if ("pro" in data) {
+					uint8arraydecodedPROHeader = BASE64.decodeArray(data.pro.__text);
+				}
+				else if ("prheader" in data) {
+					uint8arraydecodedPROHeader = BASE64.decodeArray(data.prheader.__text);
+				}
+				else {
+					return null;
+				}
+
+				PROSize = uint8arraydecodedPROHeader.length;
+				PSSHSize = 0x4 + PSSHBoxType.length + playreadySystemID.length + 0x4 + PROSize;
+
+				PSSHBoxBuffer = new ArrayBuffer(PSSHSize);
+
+				PSSHBox = new Uint8Array(PSSHBoxBuffer);
+				PSSHData = new DataView(PSSHBoxBuffer);
+
+				PSSHData.setUint32(byteCursor, PSSHSize);
+				byteCursor += 0x4;
+
+				PSSHBox.set(PSSHBoxType, byteCursor);
+				byteCursor += PSSHBoxType.length;
+
+				PSSHBox.set(playreadySystemID, byteCursor);
+				byteCursor += playreadySystemID.length;
+
+				PSSHData.setUint32(byteCursor, PROSize);
+				byteCursor += 0x4;
+
+				PSSHBox.set(uint8arraydecodedPROHeader, byteCursor);
+				byteCursor += PROSize;
+
+				return PSSHBox;
+            };
 		
 		if ('undefined' !== typeof (protectionData) && null !== protectionData) {
 			laUrlOverrides = protectionData.laUrlOverrides || laUrlOverrides;
 			cdmDataOverrides = protectionData.cdmDataOverrides || cdmDataOverrides;
 		}
 		
-        var playreadyGetUpdate = function (sessionId, rawMessage, laURL, element) {
-			//jshint unused:false
-			var deferred = Q.defer(),
-				decodedChallenge = null,
-				headers = [],
-				parser = new DOMParser(),
-				xmlDoc = parser.parseFromString(String.fromCharCode.apply(null, new Uint16Array(rawMessage.buffer)), "application/xml");
-
-			if (xmlDoc.getElementsByTagName("Challenge")[0]) {
-				var Challenge = xmlDoc.getElementsByTagName("Challenge")[0].childNodes[0].nodeValue;
-				if (Challenge) {
-					decodedChallenge = BASE64.decode(Challenge);
-				}
-			}
-			else {
-				deferred.reject('DRM: playready update, can not find Challenge in keyMessage');
-				return deferred.promise;
-			}
-
-			var headerNameList = xmlDoc.getElementsByTagName("name");
-			var headerValueList = xmlDoc.getElementsByTagName("value");
-
-			if (headerNameList.length != headerValueList.length) {
-				deferred.reject('DRM: playready update, invalid header name/value pair in keyMessage');
-				return deferred.promise;
-			}
-
-			for (var i = 0; i < headerNameList.length; i++) {
-				headers[i] = {
-					name: headerNameList[i].childNodes[0].nodeValue,
-					value: headerValueList[i].childNodes[0].nodeValue
-				};
-			}
-
-			var xhr = new XMLHttpRequest();
-			xhr.onload = function () {
-				if (xhr.status == 200) {
-					deferred.resolve(new Uint8Array(xhr.response));
-				} else {
-					deferred.reject('DRM: playready update, XHR status is "' + xhr.statusText + '" (' + xhr.status + '), expected to be 200. readyState is ' + xhr.readyState);
-				}
-			};
-			xhr.onabort = function () {
-				deferred.reject('DRM: playready update, XHR aborted. status is "' + xhr.statusText + '" (' + xhr.status + '), readyState is ' + xhr.readyState);
-			};
-			xhr.onerror = function () {
-				deferred.reject('DRM: playready update, XHR error. status is "' + xhr.statusText + '" (' + xhr.status + '), readyState is ' + xhr.readyState);
-			};
-
-			xhr.open('POST', laURL);
-			xhr.responseType = 'arraybuffer';
-			if (headers) {
-				headers.forEach(function(hdr) {
-					xhr.setRequestHeader(hdr.name, hdr.value);
-				});
-			}
-			xhr.send(decodedChallenge);
-
-			return deferred.promise;
-		},
-		playReadyNeedToAddKeySession = function (initData, keySessions) {
-			return initData === null && keySessions.length === 0;
-		},
-		playreadyGetInitData = function (data) {
-			// * desc@ getInitData
-			// *   generate PSSH data from PROHeader defined in MPD file
-			// *   PSSH format:
-			// *   size (4)
-			// *   box type(PSSH) (8)
-			// *   Protection SystemID (16)
-			// *   protection system data size (4) - length of decoded PROHeader
-			// *   decoded PROHeader data from MPD file  
-			var byteCursor = 0,
-				PROSize = 0,
-				PSSHSize = 0,
-				PSSHBoxType =  new Uint8Array([0x70, 0x73, 0x73, 0x68, 0x00, 0x00, 0x00, 0x00 ]), //'PSSH' 8 bytes
-				playreadySystemID = new Uint8Array([0x9a, 0x04, 0xf0, 0x79, 0x98, 0x40, 0x42, 0x86, 0xab, 0x92, 0xe6, 0x5b, 0xe0, 0x88, 0x5f, 0x95]),
-				uint8arraydecodedPROHeader = null,
-				PSSHBoxBuffer = null,
-				PSSHBox = null,
-				PSSHData = null;
-
-			if ("pro" in data) {
-				uint8arraydecodedPROHeader = BASE64.decodeArray(data.pro.__text);
-			}
-			else if ("prheader" in data) {
-				uint8arraydecodedPROHeader = BASE64.decodeArray(data.prheader.__text);
-			}
-			else {
-				return null;
-			}
-
-			PROSize = uint8arraydecodedPROHeader.length;
-			PSSHSize = 0x4 + PSSHBoxType.length + playreadySystemID.length + 0x4 + PROSize;
-
-			PSSHBoxBuffer = new ArrayBuffer(PSSHSize);
-
-			PSSHBox = new Uint8Array(PSSHBoxBuffer);
-			PSSHData = new DataView(PSSHBoxBuffer);
-
-			PSSHData.setUint32(byteCursor, PSSHSize);
-			byteCursor += 0x4;
-
-			PSSHBox.set(PSSHBoxType, byteCursor);
-			byteCursor += PSSHBoxType.length;
-
-			PSSHBox.set(playreadySystemID, byteCursor);
-			byteCursor += playreadySystemID.length;
-
-			PSSHData.setUint32(byteCursor, PROSize);
-			byteCursor += 0x4;
-
-			PSSHBox.set(uint8arraydecodedPROHeader, byteCursor);
-			byteCursor += PROSize;
-
-			return PSSHBox;
-		};
-
         //
         // order by priority. if an mpd contains more than one the first match will win.
         // Entries with the same schemeIdUri can appear multiple times with different keysTypeStrings.
@@ -311,7 +312,7 @@ MediaPlayer.dependencies.ProtectionExtensions.prototype = {
 				},
                 getUpdate: function (sessionId, rawMessage, laURL, element) {
 					//jshint unused:false
-                    return Q.when(rawMessage);
+                    return rawMessage;
                 },
 				laUrl: function (_laUrl) {
 					if (!String.isNullOrEmpty(_laUrl)) {
@@ -342,8 +343,7 @@ MediaPlayer.dependencies.ProtectionExtensions.prototype = {
 				},
                 getUpdate: function (sessionId, rawMessage, laURL, element) {
 					//jshint unused:false
-					var deferred = Q.defer(),
-						xhr = new XMLHttpRequest();
+					var xhr = new XMLHttpRequest();
 					
 					xhr.open('POST', laURL, true);
 					xhr.responseType = 'arraybuffer';
@@ -353,22 +353,21 @@ MediaPlayer.dependencies.ProtectionExtensions.prototype = {
 							var key = new Uint8Array(xhr.response);
 							element.webkitAddKey('com.widevine.alpha', key, null/*event.initData*/, sessionId);
 							
-							deferred.resolve(key);
+							// self.notify(self.eventList.ENAME_KEY_SYSTEM_UPDATE_COMPLETED, key);
 						} else {
-							deferred.reject('DRM: Widevine update, XHR status is "' + xhr.statusText + '" (' + xhr.status + '), expected to be 200. readyState is ' + xhr.readyState);
+							// self.notify(self.eventList.ENAME_KEY_SYSTEM_UPDATE_COMPLETED, null, new Error('DRM: Widevine update, XHR status is "' + xhr.statusText + '" (' + xhr.status + '), expected to be 200. readyState is ' + xhr.readyState));
+							return;
 						}
 					};
 					
 					xhr.onabort = function () {
-						deferred.reject('DRM: Widevine update, XHR aborted. status is "' + xhr.statusText + '" (' + xhr.status + '), readyState is ' + xhr.readyState);
+						self.notify(self.eventList.ENAME_KEY_SYSTEM_UPDATE_COMPLETED, null, new Error('DRM: Widevine update, XHR aborted. status is "' + xhr.statusText + '" (' + xhr.status + '), readyState is ' + xhr.readyState));
 					};
 					xhr.onerror = function () {
-						deferred.reject('DRM: Widevine update, XHR error. status is "' + xhr.statusText + '" (' + xhr.status + '), readyState is ' + xhr.readyState);
+						self.notify(self.eventList.ENAME_KEY_SYSTEM_UPDATE_COMPLETED, null, new Error('DRM: Widevine update, XHR error. status is "' + xhr.statusText + '" (' + xhr.status + '), readyState is ' + xhr.readyState));
 					};
 					
 					xhr.send(rawMessage);
-
-					return deferred.promise;
                 },
 				laUrl: function (_laUrl) {
 					if (!String.isNullOrEmpty(_laUrl)) {
