@@ -2019,7 +2019,7 @@ if (undefined === atob) {
 
 MediaPlayer = function(aContext) {
     "use strict";
-    var VERSION = "1.2.0", context = aContext, system, element, source, streamController, videoModel, initialized = false, playing = false, autoPlay = true, scheduleWhilePaused = false, bufferMax = MediaPlayer.dependencies.BufferExtensions.BUFFER_SIZE_REQUIRED, isReady = function() {
+    var VERSION = "1.2.0", context = aContext, system, element, source, streamController, videoModel, initialized = false, playing = false, autoPlay = true, scheduleWhilePaused = false, protectionData, bufferMax = MediaPlayer.dependencies.BufferExtensions.BUFFER_SIZE_REQUIRED, isReady = function() {
         return !!element && !!source;
     }, play = function() {
         if (!initialized) {
@@ -2035,6 +2035,7 @@ MediaPlayer = function(aContext) {
         playing = true;
         streamController = system.getObject("streamController");
         streamController.setVideoModel(videoModel);
+        streamController.setProtectionData(protectionData);
         streamController.setAutoPlay(autoPlay);
         streamController.load(source);
         system.mapValue("scheduleWhilePaused", scheduleWhilePaused);
@@ -2134,6 +2135,9 @@ MediaPlayer = function(aContext) {
         },
         getVideoModel: function() {
             return videoModel;
+        },
+        setProtectionData: function(value) {
+            protectionData = value;
         },
         setAutoPlay: function(value) {
             autoPlay = value;
@@ -6847,10 +6851,9 @@ MediaPlayer.dependencies.ProtectionController = function() {
         videoModel: undefined,
         protectionModel: undefined,
         protectionExt: undefined,
-        setup: function() {
-            keySystems = this.protectionExt.getKeySystems();
-        },
-        init: function(videoModel, protectionModel) {
+        setup: function() {},
+        init: function(videoModel, protectionModel, protectionData) {
+            keySystems = this.protectionExt.getKeySystems(protectionData);
             this.videoModel = videoModel;
             this.protectionModel = protectionModel;
             element = this.videoModel.getElement();
@@ -6916,14 +6919,18 @@ MediaPlayer.dependencies.ProtectionExtensions.prototype = {
         }
         return mediaKeys.createSession(mediaCodec, initData);
     },
-    getKeySystems: function() {
-        var laUrlOverrides = laUrlOverrides || {
+    getKeySystems: function(protectionData) {
+        var laUrlOverrides = {
             "com.microsoft.playready": null,
             "com.widevine.alpha": null
-        }, cdmDataOverrides = cdmDataOverrides || {
+        }, cdmDataOverrides = {
             "com.microsoft.playready": null,
             "com.widevine.alpha": null
         };
+        if ("undefined" !== typeof protectionData && null !== protectionData) {
+            laUrlOverrides = protectionData.laUrlOverrides || laUrlOverrides;
+            cdmDataOverrides = protectionData.cdmDataOverrides || cdmDataOverrides;
+        }
         var playreadyGetUpdate = function(sessionId, rawMessage, laURL, element) {
             var deferred = Q.defer(), decodedChallenge = null, headers = [], parser = new DOMParser(), xmlDoc = parser.parseFromString(String.fromCharCode.apply(null, new Uint16Array(rawMessage.buffer)), "application/xml");
             if (xmlDoc.getElementsByTagName("Challenge")[0]) {
@@ -8229,7 +8236,7 @@ MediaPlayer.dependencies.Stream = function() {
             this.videoModel.listen("loadedmetadata", loadedListener);
             this.requestScheduler.videoModel = value;
         },
-        initProtection: function() {
+        initProtection: function(protectionData) {
             needKeyListener = onMediaSourceNeedsKey.bind(this);
             keyMessageListener = onMediaSourceKeyMessage.bind(this);
             keyAddedListener = onMediaSourceKeyAdded.bind(this);
@@ -8237,7 +8244,7 @@ MediaPlayer.dependencies.Stream = function() {
             this.protectionModel = this.system.getObject("protectionModel");
             this.protectionModel.init(this.getVideoModel());
             this.protectionController = this.system.getObject("protectionController");
-            this.protectionController.init(this.videoModel, this.protectionModel);
+            this.protectionController.init(this.videoModel, this.protectionModel, protectionData);
             this.protectionModel.listenToNeedKey(needKeyListener);
             this.protectionModel.listenToKeyMessage(keyMessageListener);
             this.protectionModel.listenToKeyError(keyErrorListener);
@@ -8309,7 +8316,7 @@ MediaPlayer.dependencies.Stream.prototype = {
 
 MediaPlayer.dependencies.StreamController = function() {
     "use strict";
-    var streams = [], activeStream, STREAM_BUFFER_END_THRESHOLD = 6, STREAM_END_THRESHOLD = .2, autoPlay = true, isPeriodSwitchingInProgress = false, timeupdateListener, seekingListener, progressListener, pauseListener, playListener, play = function() {
+    var streams = [], activeStream, STREAM_BUFFER_END_THRESHOLD = 6, STREAM_END_THRESHOLD = .2, autoPlay = true, isPeriodSwitchingInProgress = false, protectionData, timeupdateListener, seekingListener, progressListener, pauseListener, playListener, play = function() {
         activeStream.play();
     }, pause = function() {
         activeStream.pause();
@@ -8444,7 +8451,7 @@ MediaPlayer.dependencies.StreamController = function() {
                     if (!stream) {
                         stream = self.system.getObject("stream");
                         stream.setVideoModel(pIdx === 0 ? self.videoModel : createVideoModel.call(self));
-                        stream.initProtection();
+                        stream.initProtection(protectionData);
                         stream.setAutoPlay(autoPlay);
                         stream.load(manifest, period);
                         streams.push(stream);
@@ -8512,6 +8519,9 @@ MediaPlayer.dependencies.StreamController = function() {
         },
         setVideoModel: function(value) {
             this.videoModel = value;
+        },
+        setProtectionData: function(value) {
+            protectionData = value;
         },
         load: function(url) {
             var self = this;

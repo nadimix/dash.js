@@ -26,6 +26,7 @@
         STREAM_END_THRESHOLD = 0.2,
         autoPlay = true,
         isPeriodSwitchingInProgress = false,
+		protectionData,
         timeupdateListener,
         seekingListener,
         progressListener,
@@ -286,7 +287,7 @@
                                 if (!stream) {
                                     stream = self.system.getObject("stream");
                                     stream.setVideoModel(pIdx === 0 ? self.videoModel : createVideoModel.call(self));
-                                    stream.initProtection();
+                                    stream.initProtection(protectionData);
                                     stream.setAutoPlay(autoPlay);
                                     stream.load(manifest, period);
                                     streams.push(stream);
@@ -376,7 +377,11 @@
         setVideoModel: function (value) {
             this.videoModel = value;
         },
-
+		
+		setProtectionData: function (value) {
+			protectionData = value;
+		},
+		
         load: function (url) {
             var self = this;
 
