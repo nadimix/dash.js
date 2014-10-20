@@ -52,14 +52,19 @@
             player.startup();
 
             player.attachView(video);
+			
 			player.setProtectionData({
-				laUrlOverrides: {
-					'com.microsoft.playready': null,
-					'com.widevine.alpha': null
-				},
-				cdmDataOverrides: {
-					'com.microsoft.playready': null,
-					'com.widevine.alpha': null
+				licenseRequest: {
+					'com.microsoft.playready': {
+						cdmData: null,
+						laUrl: null,
+						headers: null
+					},
+					'com.widevine.alpha': {
+						cdmData: null,
+						laUrl: null,
+						headers: null
+					}
 				}
 			});
             player.setAutoPlay(false);

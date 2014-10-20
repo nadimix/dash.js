@@ -81,138 +81,150 @@ MediaPlayer.dependencies.ProtectionExtensions.prototype = {
     },
 
     getKeySystems: function (protectionData) {
-		var laUrlOverrides = {
-			'com.microsoft.playready': null,
-			'com.widevine.alpha': null
-		},
-		cdmDataOverrides = {
-			'com.microsoft.playready': null,
-			'com.widevine.alpha': null
-		};
+        var self = this,
+			_protectionData = {
+				licenseRequest: {
+					'com.microsoft.playready': {
+						cdmData: null,
+						laUrl: null,
+						headers: null
+					},
+					'com.widevine.alpha': {
+						cdmData: null,
+						laUrl: null,
+						headers: null
+					}
+				}
+			},
+            playreadyGetUpdate = function (sessionId, rawMessage, laUrl, element) {
+				//jshint unused:false
+				var decodedChallenge = null,
+					headers = {},
+					parser = new DOMParser(),
+					xmlDoc = parser.parseFromString(String.fromCharCode.apply(null, new Uint16Array(rawMessage.buffer)), "application/xml");
+
+                if (xmlDoc.getElementsByTagName("Challenge")[0]) {
+                    var Challenge = xmlDoc.getElementsByTagName("Challenge")[0].childNodes[0].nodeValue;
+                    if (Challenge) {
+                        decodedChallenge = BASE64.decode(Challenge);
+                    }
+                }
+                else {
+                    self.notify(self.eventList.ENAME_KEY_SYSTEM_UPDATE_COMPLETED, null, new Error('DRM: playready update, can not find Challenge in keyMessage'));
+                }
+
+                var headerNameList = xmlDoc.getElementsByTagName("name");
+                var headerValueList = xmlDoc.getElementsByTagName("value");
+
+                if (headerNameList.length != headerValueList.length) {
+                    self.notify(self.eventList.ENAME_KEY_SYSTEM_UPDATE_COMPLETED, null, new Error('DRM: playready update, invalid header name/value pair in keyMessage'));
+                }
+
+                for (var i = 0; i < headerNameList.length; i++) {
+                    headers[headerNameList[i].childNodes[0].nodeValue] = headerValueList[i].childNodes[0].nodeValue;
+                }
+
+                var xhr = new XMLHttpRequest();
+                xhr.onload = function () {
+                    if (xhr.status == 200) {
+                        self.notify(self.eventList.ENAME_KEY_SYSTEM_UPDATE_COMPLETED, new Uint8Array(xhr.response));
+                    } else {
+                        self.notify(self.eventList.ENAME_KEY_SYSTEM_UPDATE_COMPLETED, null, new Error('DRM: playready update, XHR status is "' + xhr.statusText + '" (' + xhr.status + '), expected to be 200. readyState is ' + xhr.readyState));
+                    }
+                };
+                xhr.onabort = function () {
+                    self.notify(self.eventList.ENAME_KEY_SYSTEM_UPDATE_COMPLETED, null, new Error('DRM: playready update, XHR aborted. status is "' + xhr.statusText + '" (' + xhr.status + '), readyState is ' + xhr.readyState));
+                };
+                xhr.onerror = function () {
+                    self.notify(self.eventList.ENAME_KEY_SYSTEM_UPDATE_COMPLETED, null, new Error('DRM: playready update, XHR error. status is "' + xhr.statusText + '" (' + xhr.status + '), readyState is ' + xhr.readyState));
+                };
+
+                xhr.open('POST', laUrl);
+                xhr.responseType = 'arraybuffer';
+				
+				var key,
+						headerOverrides = (_protectionData.licenseRequest && _protectionData.licenseRequest['com.microsoft.playready']) ? _protectionData.licenseRequest && _protectionData.licenseRequest['com.microsoft.playready'].headers : null;
+                if (headerOverrides) {
+                    headers = headers || [];
+					for (key in headerOverrides) {
+                        headers[key] = headerOverrides[key];
+                    }
+                }
+				
+                if (headers) {
+					for (key in headers) {
+						if ('authorization' === key.toLowerCase()) {
+							xhr.withCredentials = true;
+						}
+						
+						xhr.setRequestHeader(key, headers[key]);
+					}
+                }
+				
+                xhr.send(decodedChallenge);
+            },
+            playReadyNeedToAddKeySession = function (initData, keySessions) {
+                return initData === null && keySessions.length === 0;
+            },
+            playreadyGetInitData = function (data) {
+				// * desc@ getInitData
+				// *   generate PSSH data from PROHeader defined in MPD file
+				// *   PSSH format:
+				// *   size (4)
+				// *   box type(PSSH) (8)
+				// *   Protection SystemID (16)
+				// *   protection system data size (4) - length of decoded PROHeader
+				// *   decoded PROHeader data from MPD file  
+				var byteCursor = 0,
+					PROSize = 0,
+					PSSHSize = 0,
+					PSSHBoxType =  new Uint8Array([0x70, 0x73, 0x73, 0x68, 0x00, 0x00, 0x00, 0x00 ]), //'PSSH' 8 bytes
+					playreadySystemID = new Uint8Array([0x9a, 0x04, 0xf0, 0x79, 0x98, 0x40, 0x42, 0x86, 0xab, 0x92, 0xe6, 0x5b, 0xe0, 0x88, 0x5f, 0x95]),
+					uint8arraydecodedPROHeader = null,
+					PSSHBoxBuffer = null,
+					PSSHBox = null,
+					PSSHData = null;
+
+				if ("pro" in data) {
+					uint8arraydecodedPROHeader = BASE64.decodeArray(data.pro.__text);
+				}
+				else if ("prheader" in data) {
+					uint8arraydecodedPROHeader = BASE64.decodeArray(data.prheader.__text);
+				}
+				else {
+					return null;
+				}
+
+				PROSize = uint8arraydecodedPROHeader.length;
+				PSSHSize = 0x4 + PSSHBoxType.length + playreadySystemID.length + 0x4 + PROSize;
+
+				PSSHBoxBuffer = new ArrayBuffer(PSSHSize);
+
+				PSSHBox = new Uint8Array(PSSHBoxBuffer);
+				PSSHData = new DataView(PSSHBoxBuffer);
+
+				PSSHData.setUint32(byteCursor, PSSHSize);
+				byteCursor += 0x4;
+
+				PSSHBox.set(PSSHBoxType, byteCursor);
+				byteCursor += PSSHBoxType.length;
+
+				PSSHBox.set(playreadySystemID, byteCursor);
+				byteCursor += playreadySystemID.length;
+
+				PSSHData.setUint32(byteCursor, PROSize);
+				byteCursor += 0x4;
+
+				PSSHBox.set(uint8arraydecodedPROHeader, byteCursor);
+				byteCursor += PROSize;
+
+				return PSSHBox;
+            };
 		
 		if ('undefined' !== typeof (protectionData) && null !== protectionData) {
-			laUrlOverrides = protectionData.laUrlOverrides || laUrlOverrides;
-			cdmDataOverrides = protectionData.cdmDataOverrides || cdmDataOverrides;
+			_protectionData.licenseRequest = protectionData.licenseRequest || _protectionData.licenseRequest;
 		}
 		
-        var playreadyGetUpdate = function (sessionId, rawMessage, laURL, element) {
-			//jshint unused:false
-			var deferred = Q.defer(),
-				decodedChallenge = null,
-				headers = [],
-				parser = new DOMParser(),
-				xmlDoc = parser.parseFromString(String.fromCharCode.apply(null, new Uint16Array(rawMessage.buffer)), "application/xml");
-
-			if (xmlDoc.getElementsByTagName("Challenge")[0]) {
-				var Challenge = xmlDoc.getElementsByTagName("Challenge")[0].childNodes[0].nodeValue;
-				if (Challenge) {
-					decodedChallenge = BASE64.decode(Challenge);
-				}
-			}
-			else {
-				deferred.reject('DRM: playready update, can not find Challenge in keyMessage');
-				return deferred.promise;
-			}
-
-			var headerNameList = xmlDoc.getElementsByTagName("name");
-			var headerValueList = xmlDoc.getElementsByTagName("value");
-
-			if (headerNameList.length != headerValueList.length) {
-				deferred.reject('DRM: playready update, invalid header name/value pair in keyMessage');
-				return deferred.promise;
-			}
-
-			for (var i = 0; i < headerNameList.length; i++) {
-				headers[i] = {
-					name: headerNameList[i].childNodes[0].nodeValue,
-					value: headerValueList[i].childNodes[0].nodeValue
-				};
-			}
-
-			var xhr = new XMLHttpRequest();
-			xhr.onload = function () {
-				if (xhr.status == 200) {
-					deferred.resolve(new Uint8Array(xhr.response));
-				} else {
-					deferred.reject('DRM: playready update, XHR status is "' + xhr.statusText + '" (' + xhr.status + '), expected to be 200. readyState is ' + xhr.readyState);
-				}
-			};
-			xhr.onabort = function () {
-				deferred.reject('DRM: playready update, XHR aborted. status is "' + xhr.statusText + '" (' + xhr.status + '), readyState is ' + xhr.readyState);
-			};
-			xhr.onerror = function () {
-				deferred.reject('DRM: playready update, XHR error. status is "' + xhr.statusText + '" (' + xhr.status + '), readyState is ' + xhr.readyState);
-			};
-
-			xhr.open('POST', laURL);
-			xhr.responseType = 'arraybuffer';
-			if (headers) {
-				headers.forEach(function(hdr) {
-					xhr.setRequestHeader(hdr.name, hdr.value);
-				});
-			}
-			xhr.send(decodedChallenge);
-
-			return deferred.promise;
-		},
-		playReadyNeedToAddKeySession = function (initData, keySessions) {
-			return initData === null && keySessions.length === 0;
-		},
-		playreadyGetInitData = function (data) {
-			// * desc@ getInitData
-			// *   generate PSSH data from PROHeader defined in MPD file
-			// *   PSSH format:
-			// *   size (4)
-			// *   box type(PSSH) (8)
-			// *   Protection SystemID (16)
-			// *   protection system data size (4) - length of decoded PROHeader
-			// *   decoded PROHeader data from MPD file  
-			var byteCursor = 0,
-				PROSize = 0,
-				PSSHSize = 0,
-				PSSHBoxType =  new Uint8Array([0x70, 0x73, 0x73, 0x68, 0x00, 0x00, 0x00, 0x00 ]), //'PSSH' 8 bytes
-				playreadySystemID = new Uint8Array([0x9a, 0x04, 0xf0, 0x79, 0x98, 0x40, 0x42, 0x86, 0xab, 0x92, 0xe6, 0x5b, 0xe0, 0x88, 0x5f, 0x95]),
-				uint8arraydecodedPROHeader = null,
-				PSSHBoxBuffer = null,
-				PSSHBox = null,
-				PSSHData = null;
-
-			if ("pro" in data) {
-				uint8arraydecodedPROHeader = BASE64.decodeArray(data.pro.__text);
-			}
-			else if ("prheader" in data) {
-				uint8arraydecodedPROHeader = BASE64.decodeArray(data.prheader.__text);
-			}
-			else {
-				return null;
-			}
-
-			PROSize = uint8arraydecodedPROHeader.length;
-			PSSHSize = 0x4 + PSSHBoxType.length + playreadySystemID.length + 0x4 + PROSize;
-
-			PSSHBoxBuffer = new ArrayBuffer(PSSHSize);
-
-			PSSHBox = new Uint8Array(PSSHBoxBuffer);
-			PSSHData = new DataView(PSSHBoxBuffer);
-
-			PSSHData.setUint32(byteCursor, PSSHSize);
-			byteCursor += 0x4;
-
-			PSSHBox.set(PSSHBoxType, byteCursor);
-			byteCursor += PSSHBoxType.length;
-
-			PSSHBox.set(playreadySystemID, byteCursor);
-			byteCursor += playreadySystemID.length;
-
-			PSSHData.setUint32(byteCursor, PROSize);
-			byteCursor += 0x4;
-
-			PSSHBox.set(uint8arraydecodedPROHeader, byteCursor);
-			byteCursor += PROSize;
-
-			return PSSHBox;
-		};
-
         //
         // order by priority. if an mpd contains more than one the first match will win.
         // Entries with the same schemeIdUri can appear multiple times with different keysTypeStrings.
@@ -227,19 +239,20 @@ MediaPlayer.dependencies.ProtectionExtensions.prototype = {
                 needToAddKeySession: playReadyNeedToAddKeySession,
                 getInitData: playreadyGetInitData,
                 getUpdate: playreadyGetUpdate,
-				laUrl: function (_laUrl) {
-					if (!String.isNullOrEmpty(_laUrl)) {
-						laUrlOverrides[this.keysTypeString] = _laUrl;
+				laUrl: function (laUrl) {
+					if (!String.isNullOrEmpty(laUrl)) {
+						_protectionData.licenseRequest[this.keysTypeString].laUrl = laUrl;
 					}
 					
-					return laUrlOverrides[this.keysTypeString];
+					return _protectionData.licenseRequest[this.keysTypeString].laUrl;
 				},
-				cdmData: function (_cdmData) {
-					if (!String.isNullOrEmpty(_cdmData)) {
-						cdmDataOverrides[this.keysTypeString] = _cdmData;
+				cdmData: function (cdmData) {
+					if (!String.isNullOrEmpty(cdmData)) {
+						_protectionData.licenseRequest[this.keysTypeString].cdmData = cdmData;
 					}
 					
-					if (null === cdmDataOverrides[this.keysTypeString]) {
+					var _cdmData = _protectionData.licenseRequest[this.keysTypeString].cdmData;
+					if (null === _cdmData) {
 						return null;
 					}
 					
@@ -247,8 +260,8 @@ MediaPlayer.dependencies.ProtectionExtensions.prototype = {
 					cdmDataArray.push(239);
 					cdmDataArray.push(187);
 					cdmDataArray.push(191);
-					for(var i = 0, j = cdmDataOverrides[this.keysTypeString].length; i < j; ++i){
-						charCode = cdmDataOverrides[this.keysTypeString].charCodeAt(i);
+					for(var i = 0, j = _cdmData.length; i < j; ++i){
+						charCode = _cdmData.charCodeAt(i);
 						cdmDataArray.push((charCode & 0xFF00) >> 8);
 						cdmDataArray.push(charCode & 0xFF);
 					}
@@ -268,19 +281,20 @@ MediaPlayer.dependencies.ProtectionExtensions.prototype = {
                     return null;
 				},
                 getUpdate: playreadyGetUpdate,
-				laUrl: function (_laUrl) {
-					if (!String.isNullOrEmpty(_laUrl)) {
-						laUrlOverrides[this.keysTypeString] = _laUrl;
+				laUrl: function (laUrl) {
+					if (!String.isNullOrEmpty(laUrl)) {
+						_protectionData.licenseRequest[this.keysTypeString].laUrl = laUrl;
 					}
 					
-					return laUrlOverrides[this.keysTypeString];
+					return _protectionData.licenseRequest[this.keysTypeString].laUrl;
 				},
-				cdmData: function (_cdmData) {
-					if (!String.isNullOrEmpty(_cdmData)) {
-						cdmDataOverrides[this.keysTypeString] = _cdmData;
+				cdmData: function (cdmData) {
+					if (!String.isNullOrEmpty(cdmData)) {
+						_protectionData.licenseRequest[this.keysTypeString].cdmData = cdmData;
 					}
 					
-					if (null === cdmDataOverrides[this.keysTypeString]) {
+					var _cdmData = _protectionData.licenseRequest[this.keysTypeString].cdmData;
+					if (null === _cdmData) {
 						return null;
 					}
 					
@@ -288,8 +302,8 @@ MediaPlayer.dependencies.ProtectionExtensions.prototype = {
 					cdmDataArray.push(239);
 					cdmDataArray.push(187);
 					cdmDataArray.push(191);
-					for(var i = 0, j = cdmDataOverrides[this.keysTypeString].length; i < j; ++i){
-						charCode = cdmDataOverrides[this.keysTypeString].charCodeAt(i);
+					for(var i = 0, j = _cdmData.length; i < j; ++i){
+						charCode = _cdmData.charCodeAt(i);
 						cdmDataArray.push((charCode & 0xFF00) >> 8);
 						cdmDataArray.push(charCode & 0xFF);
 					}
@@ -309,23 +323,23 @@ MediaPlayer.dependencies.ProtectionExtensions.prototype = {
                 getInitData: function (/*data*/) {
                     return null;
 				},
-                getUpdate: function (sessionId, rawMessage, laURL, element) {
+                getUpdate: function (sessionId, rawMessage, laUrl, element) {
 					//jshint unused:false
                     return Q.when(rawMessage);
                 },
-				laUrl: function (_laUrl) {
-					if (!String.isNullOrEmpty(_laUrl)) {
-						laUrlOverrides[this.keysTypeString] = _laUrl;
+				laUrl: function (laUrl) {
+					if (!String.isNullOrEmpty(laUrl)) {
+						_protectionData.licenseRequest[this.keysTypeString].laUrl = laUrl;
 					}
 					
-					return laUrlOverrides[this.keysTypeString];
+					return _protectionData.licenseRequest[this.keysTypeString].laUrl;
 				},
-				cdmData: function (_cdmData) {
-					if (!String.isNullOrEmpty(_cdmData)) {
-						cdmDataOverrides[this.keysTypeString] = _cdmData;
+				cdmData: function (cdmData) {
+					if (!String.isNullOrEmpty(cdmData)) {
+						_protectionData.licenseRequest[this.keysTypeString].cdmData = cdmData;
 					}
 					
-					return cdmDataOverrides[this.keysTypeString];
+					return _protectionData.licenseRequest[this.keysTypeString].cdmData;
 				}
             },
             {
@@ -340,12 +354,12 @@ MediaPlayer.dependencies.ProtectionExtensions.prototype = {
                 getInitData: function (/*data*/) {
                     return null;
 				},
-                getUpdate: function (sessionId, rawMessage, laURL, element) {
+                getUpdate: function (sessionId, rawMessage, laUrl, element) {
 					//jshint unused:false
 					var deferred = Q.defer(),
 						xhr = new XMLHttpRequest();
 					
-					xhr.open('POST', laURL, true);
+					xhr.open('POST', laUrl, true);
 					xhr.responseType = 'arraybuffer';
 					
 					xhr.onload = function(e) {
@@ -366,23 +380,35 @@ MediaPlayer.dependencies.ProtectionExtensions.prototype = {
 						deferred.reject('DRM: Widevine update, XHR error. status is "' + xhr.statusText + '" (' + xhr.status + '), readyState is ' + xhr.readyState);
 					};
 					
+					var key,
+							headerOverrides = (_protectionData.licenseRequest && _protectionData.licenseRequest['com.widevine.alpha']) ? _protectionData.licenseRequest && _protectionData.licenseRequest['com.widevine.alpha'].headers : null;
+					if (headerOverrides) {
+						for (key in headerOverrides) {
+							if ('authorization' === key.toLowerCase()) {
+								xhr.withCredentials = true;
+							}
+							
+							xhr.setRequestHeader(key, headerOverrides[key]);
+						}
+					}
+					
 					xhr.send(rawMessage);
 
 					return deferred.promise;
                 },
-				laUrl: function (_laUrl) {
-					if (!String.isNullOrEmpty(_laUrl)) {
-						laUrlOverrides[this.keysTypeString] = _laUrl;
+				laUrl: function (laUrl) {
+					if (!String.isNullOrEmpty(laUrl)) {
+						_protectionData.licenseRequest[this.keysTypeString].laUrl = laUrl;
 					}
 					
-					return laUrlOverrides[this.keysTypeString];
+					return _protectionData.licenseRequest[this.keysTypeString].laUrl;
 				},
-				cdmData: function (_cdmData) {
-					if (!String.isNullOrEmpty(_cdmData)) {
-						cdmDataOverrides[this.keysTypeString] = _cdmData;
+				cdmData: function (cdmData) {
+					if (!String.isNullOrEmpty(cdmData)) {
+						_protectionData.licenseRequest[this.keysTypeString].cdmData = cdmData;
 					}
 					
-					return cdmDataOverrides[this.keysTypeString];
+					return _protectionData.licenseRequest[this.keysTypeString].cdmData;
 				}
             }
         ];
