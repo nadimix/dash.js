@@ -25,13 +25,8 @@
         STREAM_BUFFER_END_THRESHOLD = 6,
         STREAM_END_THRESHOLD = 0.2,
         autoPlay = true,
-        isPeriodSwitchingInProgress = false,
 		protectionData,
-        timeupdateListener,
-        seekingListener,
-        progressListener,
-        pauseListener,
-        playListener,
+        isStreamSwitchingInProgress = false,
 
         play = function () {
             activeStream.play();
@@ -253,6 +248,7 @@
                         if (streams[sIdx].getId() === streamInfo.id) {
                             stream = streams[sIdx];
                             stream.updateData(streamInfo);
+                        }
                     }
                     // If the Stream object does not exist we probably loaded the manifest the first time or it was
                     // introduced in the updated manifest, so we need to create a new Stream and perform all the initialization operations

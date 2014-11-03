@@ -2462,13 +2462,13 @@ Dash.dependencies.DashHandler = function() {
             self.notify(self.eventList.ENAME_REPRESENTATION_UPDATED, representation);
         }
     }, getIndexForSegments = function(time, representation) {
-        var segments = representation.segments, segmentLastIdx = segments ? segments.length - 1 : null, idx = -1, frag, ft, fd, i;
-        if (segments && segments.length > 0) {
-            for (i = segmentLastIdx; i >= 0; i--) {
+        var segments = representation.segments, ln = segments ? segments.length : null, idx = -1, frag, ft, fd, i;
+        if (segments && ln > 0) {
+            for (i = 0; i < ln; i += 1) {
                 frag = segments[i];
                 ft = frag.presentationStartTime;
                 fd = frag.duration;
-                if (time + Dash.dependencies.DashHandler.EPSILON >= ft && time - Dash.dependencies.DashHandler.EPSILON <= ft + fd) {
+                if (time + fd / 2 >= ft && time - fd / 2 < ft + fd) {
                     idx = frag.availabilityIdx;
                     break;
                 }
@@ -2487,7 +2487,7 @@ Dash.dependencies.DashHandler = function() {
         return null;
     }, isSegmentListUpdateRequired = function(representation) {
         var updateRequired = false, segments = representation.segments, upperIdx, lowerIdx;
-        if (!segments) {
+        if (!segments || segments.length === 0) {
             updateRequired = true;
         } else {
             lowerIdx = segments[0].availabilityIdx;
@@ -2655,8 +2655,6 @@ Dash.dependencies.DashHandler = function() {
         updateRepresentation: updateRepresentation
     };
 };
-
-Dash.dependencies.DashHandler.EPSILON = .003;
 
 Dash.dependencies.DashHandler.prototype = {
     constructor: Dash.dependencies.DashHandler
@@ -3782,11 +3780,11 @@ Dash.dependencies.TimelineConverter = function() {
     }, calcPresentationTimeFromWallTime = function(wallTime, period) {
         return (wallTime.getTime() - period.mpd.availabilityStartTime.getTime() + clientServerTimeShift * 1e3) / 1e3;
     }, calcPresentationTimeFromMediaTime = function(mediaTime, representation) {
-        var presentationOffset = representation.presentationTimeOffset;
-        return mediaTime - presentationOffset;
+        var periodStart = representation.adaptation.period.start, presentationOffset = representation.presentationTimeOffset;
+        return mediaTime + (periodStart - presentationOffset);
     }, calcMediaTimeFromPresentationTime = function(presentationTime, representation) {
-        var presentationOffset = representation.presentationTimeOffset;
-        return presentationOffset + presentationTime;
+        var periodStart = representation.adaptation.period.start, presentationOffset = representation.presentationTimeOffset;
+        return presentationTime - periodStart + presentationOffset;
     }, calcWallTimeForSegment = function(segment, isDynamic) {
         var suggestedPresentationDelay, displayStartTime, wallTime;
         if (isDynamic) {
@@ -4162,6 +4160,9 @@ MediaPlayer.dependencies.BufferController = function() {
         self.sourceBufferExt.append(buffer, data);
     }, onAppended = function(sender, sourceBuffer, data, error) {
         if (buffer !== sourceBuffer) return;
+        if (this.isBufferingCompleted()) {
+            this.mediaSourceExt.signalEndOfStream(mediaSource);
+        }
         var self = this, ranges;
         if (error) {
             if (error.code === QUOTA_EXCEEDED_ERROR_CODE) {
@@ -4400,6 +4401,7 @@ MediaPlayer.dependencies.BufferController = function() {
         sourceBufferExt: undefined,
         eventBus: undefined,
         bufferMax: undefined,
+        mediaSourceExt: undefined,
         metricsModel: undefined,
         metricsExt: undefined,
         adapter: undefined,
@@ -6109,7 +6111,7 @@ MediaPlayer.dependencies.ProtectionController = function() {
         for (var ks = 0; ks < keySystems.length; ++ks) {
             for (var cp = 0; cp < contentProtection.length; ++cp) {
                 if (keySystems[ks].isSupported(contentProtection[cp]) && (self.protectionExt.supportsCodec(keySystems[ks].keysTypeString, codec) || keySystems[ks].usePromises())) {
-                    var kid = contentProtection[cp].KID;
+                    var kid = self.manifestExt.getKID(contentProtection[cp]);
                     if (!kid) {
                         kid = "unknown";
                     }
@@ -6144,7 +6146,9 @@ MediaPlayer.dependencies.ProtectionController = function() {
     return {
         system: undefined,
         debug: undefined,
+        manifestExt: undefined,
         capabilities: undefined,
+        videoModel: undefined,
         protectionModel: undefined,
         protectionExt: undefined,
         setup: function() {},
@@ -8490,7 +8494,7 @@ MediaPlayer.rules.DownloadRatioRule = function() {
                     if (downloadRatio >= switchRatio) {
                         if (downloadRatio > 100) {
                             self.debug.log("Tons of bandwidth available, go all the way up.");
-                            switchRequest = new MediaPlayer.rules.SwitchRequest(max - 1);
+                            switchRequest = new MediaPlayer.rules.SwitchRequest(max);
                         } else if (downloadRatio > 10) {
                             self.debug.log("Just enough bandwidth available, switch up one.");
                             switchRequest = new MediaPlayer.rules.SwitchRequest(current + 1);
@@ -8878,7 +8882,7 @@ MediaPlayer.rules.PlaybackTimeRule = function() {
         },
         execute: function(context, callback) {
             var mediaType = context.getMediaInfo().type, streamId = context.getStreamInfo().id, sc = scheduleController[streamId][mediaType], streamProcessor = scheduleController[streamId][mediaType].streamProcessor, track = streamProcessor.getCurrentTrack(), st = seekTarget[streamId] ? seekTarget[streamId][mediaType] : null, p = st ? MediaPlayer.rules.SwitchRequest.prototype.STRONG : MediaPlayer.rules.SwitchRequest.prototype.DEFAULT, rejected = sc.getFragmentModel().getRejectedRequests().shift(), keepIdx = !!rejected && !st, currentTime = this.adapter.getIndexHandlerTime(streamProcessor), playbackTime = streamProcessor.playbackController.getTime(), rejectedEnd = rejected ? rejected.startTime + rejected.duration : null, useRejected = rejected && (rejectedEnd > playbackTime && rejected.startTime <= currentTime || isNaN(currentTime)), range, time, request;
-            time = st || (useRejected ? rejected.startTime + rejected.duration / 2 : currentTime);
+            time = st || (useRejected ? rejected.startTime : currentTime);
             if (isNaN(time)) {
                 callback(new MediaPlayer.rules.SwitchRequest(null, p));
                 return;
@@ -8891,6 +8895,9 @@ MediaPlayer.rules.PlaybackTimeRule = function() {
                 time = range.end;
             }
             request = this.adapter.getFragmentRequestForTime(streamProcessor, track, time, keepIdx);
+            if (useRejected && request && request.index !== rejected.index) {
+                request = this.adapter.getFragmentRequestForTime(streamProcessor, track, rejected.startTime + rejected.duration / 2, keepIdx);
+            }
             while (request && streamProcessor.fragmentController.isFragmentLoadedOrPending(sc, request)) {
                 if (request.action === "complete") {
                     request = null;

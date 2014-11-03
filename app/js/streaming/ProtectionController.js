@@ -21,8 +21,10 @@ MediaPlayer.dependencies.ProtectionController = function () {
             self.protectionModel.removeKeySystem(kid);
         },
 
-        selectKeySystem = function (codec, contentProtection, initData) {
-            var self = this;
+        selectKeySystem = function (mediaInfo, initData) {
+            var self = this,
+                codec = mediaInfo.codec,
+                contentProtection = mediaInfo.contentProtection;
 
             for(var ks = 0; ks < keySystems.length; ++ks) {
                 for(var cp = 0; cp < contentProtection.length; ++cp) {
@@ -74,14 +76,7 @@ MediaPlayer.dependencies.ProtectionController = function () {
         },
 
         updateFromMessage = function (kid, session, sessionId, rawMessage, laURL) {
-            var self = this,
-                result;
-            result = self.protectionModel.updateFromMessage(kid, sessionId, rawMessage, laURL);
-            result.then(
-                function (data) {
-                    session.update(data);
-            });
-            return result;
+            this.protectionModel.updateFromMessage(kid, session, sessionId, rawMessage, laURL);
         };
 
     return {
