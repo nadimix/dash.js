@@ -3825,7 +3825,8 @@ Dash.dependencies.TimelineConverter = function() {
         isClientServerTimeSyncCompleted = true;
     }, calcMSETimeOffset = function(representation) {
         var presentationOffset = representation.presentationTimeOffset;
-        return -presentationOffset;
+        var periodStart = representation.adaptation.period.start;
+        return periodStart - presentationOffset;
     }, reset = function() {
         clientServerTimeShift = 0;
         isClientServerTimeSyncCompleted = false;
@@ -4317,6 +4318,12 @@ MediaPlayer.dependencies.BufferController = function() {
         if (hasSufficientBuffer === state) return;
         hasSufficientBuffer = state;
         this.debug.log(hasSufficientBuffer ? "Got enough " + type + " buffer to start." : "Waiting for more " + type + " buffer before starting playback.");
+        this.eventBus.dispatchEvent({
+            type: hasSufficientBuffer ? "bufferLoaded" : "bufferStalled",
+            data: {
+                bufferType: type
+            }
+        });
         this.notify(this.eventList.ENAME_BUFFER_LEVEL_STATE_CHANGED, state);
     }, updateBufferTimestampOffset = function(MSETimeOffset) {
         if (buffer.timestampOffset !== MSETimeOffset) {
@@ -4391,6 +4398,7 @@ MediaPlayer.dependencies.BufferController = function() {
     return {
         manifestModel: undefined,
         sourceBufferExt: undefined,
+        eventBus: undefined,
         bufferMax: undefined,
         metricsModel: undefined,
         metricsExt: undefined,
@@ -4524,8 +4532,8 @@ MediaPlayer.utils.Capabilities.prototype = {
     },
     supportsMediaKeys: function() {
         "use strict";
-        var hasWebKit = "WebKitMediaKeys" in window, hasMs = "MSMediaKeys" in window, hasMediaSource = "MediaKeys" in window;
-        return hasWebKit || hasMs || hasMediaSource;
+        var hasWebKit = "WebKitMediaKeys" in window, hasMs = "MSMediaKeys" in window, hasMediaSource = "MediaKeys" in window, hasWebkitGenerateKeyRequest = "webkitGenerateKeyRequest" in document.createElement("video");
+        return hasWebKit || hasMs || hasMediaSource || hasWebkitGenerateKeyRequest;
     },
     supportsCodec: function(element, codec) {
         "use strict";
@@ -5269,12 +5277,22 @@ MediaPlayer.dependencies.FragmentModel = function() {
                 }
             }
         },
-        cancelPendingRequests: function() {
-            var self = this, reqs = pendingRequests;
+        cancelPendingRequests: function(quality) {
+            var self = this, reqs = pendingRequests, canceled = reqs;
             pendingRequests = [];
-            reqs.forEach(function(request) {
+            if (quality !== undefined) {
+                pendingRequests = reqs.filter(function(request) {
+                    if (request.quality === quality) {
+                        return false;
+                    }
+                    canceled.splice(canceled.indexOf(request), 1);
+                    return true;
+                });
+            }
+            canceled.forEach(function(request) {
                 addSchedulingInfoMetrics.call(self, request, MediaPlayer.vo.metrics.SchedulingInfo.CANCELED_STATE);
             });
+            return canceled;
         },
         abortRequests: function() {
             this.fragmentLoader.abort();
@@ -6090,7 +6108,7 @@ MediaPlayer.dependencies.ProtectionController = function() {
         var self = this, codec = mediaInfo.codec, contentProtection = mediaInfo.contentProtection;
         for (var ks = 0; ks < keySystems.length; ++ks) {
             for (var cp = 0; cp < contentProtection.length; ++cp) {
-                if (keySystems[ks].isSupported(contentProtection[cp]) && self.protectionExt.supportsCodec(keySystems[ks].keysTypeString, codec)) {
+                if (keySystems[ks].isSupported(contentProtection[cp]) && (self.protectionExt.supportsCodec(keySystems[ks].keysTypeString, codec) || keySystems[ks].usePromises())) {
                     var kid = contentProtection[cp].KID;
                     if (!kid) {
                         kid = "unknown";
@@ -6161,8 +6179,8 @@ MediaPlayer.dependencies.ProtectionExtensions.prototype = {
     },
     supportsCodec: function(mediaKeysString, codec) {
         "use strict";
-        var hasWebKit = "WebKitMediaKeys" in window, hasMs = "MSMediaKeys" in window, hasMediaSource = "MediaKeys" in window;
-        if (hasMediaSource) {
+        var hasWebKit = "WebKitMediaKeys" in window, hasMs = "MSMediaKeys" in window, hasMediaKeys = "MediaKeys" in window;
+        if (hasMediaKeys) {
             return MediaKeys.isTypeSupported(mediaKeysString, codec);
         } else if (hasWebKit) {
             return WebKitMediaKeys.isTypeSupported(mediaKeysString, codec);
@@ -6173,8 +6191,11 @@ MediaPlayer.dependencies.ProtectionExtensions.prototype = {
     },
     createMediaKeys: function(mediaKeysString) {
         "use strict";
-        var hasWebKit = "WebKitMediaKeys" in window, hasMs = "MSMediaKeys" in window, hasMediaSource = "MediaKeys" in window;
-        if (hasMediaSource) {
+        var hasWebKit = "WebKitMediaKeys" in window, hasMs = "MSMediaKeys" in window, hasMediaKeys = "MediaKeys" in window;
+        if (hasMediaKeys) {
+            if ("create" in MediaKeys) {
+                return MediaKeys.create(mediaKeysString);
+            }
             return new MediaKeys(mediaKeysString);
         } else if (hasWebKit) {
             return new WebKitMediaKeys(mediaKeysString);
@@ -6184,11 +6205,13 @@ MediaPlayer.dependencies.ProtectionExtensions.prototype = {
         return null;
     },
     setMediaKey: function(element, mediaKeys, initData) {
-        var hasWebKit = "WebKitSetMediaKeys" in element, hasMs = "msSetMediaKeys" in element, hasStd = "SetMediaKeys" in element, hasWebkitGenerateKeyRequest = "webkitGenerateKeyRequest" in element;
-        if (hasStd) {
-            return element.SetMediaKeys(mediaKeys);
-        } else if (hasWebkitGenerateKeyRequest) {
+        var hasWebKit = "WebKitSetMediaKeys" in element, hasMs = "msSetMediaKeys" in element, hasSetMediaKeys = "SetMediaKeys" in element, hasCamelCaseSetMediaKeys = "setMediaKeys" in element, hasWebkitGenerateKeyRequest = "webkitGenerateKeyRequest" in element;
+        if (hasWebkitGenerateKeyRequest) {
             return element.webkitGenerateKeyRequest(mediaKeys.keySystem, initData);
+        } else if (hasSetMediaKeys) {
+            return element.SetMediaKeys(mediaKeys);
+        } else if (hasCamelCaseSetMediaKeys) {
+            return element.setMediaKeys(mediaKeys);
         } else if (hasWebKit) {
             return element.WebKitSetMediaKeys(mediaKeys);
         } else if (hasMs) {
@@ -6304,6 +6327,9 @@ MediaPlayer.dependencies.ProtectionExtensions.prototype = {
             isSupported: function(data) {
                 return this.schemeIdUri === data.schemeIdUri.toLowerCase();
             },
+            usePromises: function() {
+                return false;
+            },
             needToAddKeySession: playReadyNeedToAddKeySession,
             getInitData: playreadyGetInitData,
             getUpdate: playreadyGetUpdate,
@@ -6337,6 +6363,9 @@ MediaPlayer.dependencies.ProtectionExtensions.prototype = {
             keysTypeString: "com.microsoft.playready",
             isSupported: function(data) {
                 return this.schemeIdUri === data.schemeIdUri.toLowerCase() && data.value.toLowerCase() === "cenc";
+            },
+            usePromises: function() {
+                return false;
             },
             needToAddKeySession: playReadyNeedToAddKeySession,
             getInitData: function() {
@@ -6377,6 +6406,9 @@ MediaPlayer.dependencies.ProtectionExtensions.prototype = {
             needToAddKeySession: function() {
                 return true;
             },
+            usePromises: function() {
+                return false;
+            },
             getInitData: function() {
                 return null;
             },
@@ -6400,6 +6432,9 @@ MediaPlayer.dependencies.ProtectionExtensions.prototype = {
             keysTypeString: "com.widevine.alpha",
             isSupported: function(data) {
                 return this.schemeIdUri === data.schemeIdUri.toLowerCase();
+            },
+            usePromises: function() {
+                return MediaKeys && "function" === typeof MediaKeys.create;
             },
             needToAddKeySession: function() {
                 return false;
@@ -6530,17 +6565,40 @@ MediaPlayer.models.ProtectionModel = function() {
             return session;
         },
         addKeySystem: function(kid, contentProtectionData, keySystemDesc, initData) {
-            var keysLocal = null;
-            keysLocal = this.protectionExt.createMediaKeys(keySystemDesc.keysTypeString);
-            this.protectionExt.setMediaKey(element, keysLocal, initData);
-            keySystems[kid] = {
-                kID: kid,
-                contentProtection: contentProtectionData,
-                keySystem: keySystemDesc,
-                keys: keysLocal,
-                initData: null,
-                keySessions: []
-            };
+            var _self = this, keysLocal = null;
+            if (!keySystemDesc.usePromises()) {
+                keysLocal = this.protectionExt.createMediaKeys(keySystemDesc.keysTypeString);
+                this.protectionExt.setMediaKey(element, keysLocal, initData);
+                keySystems[kid] = {
+                    kID: kid,
+                    contentProtection: contentProtectionData,
+                    keySystem: keySystemDesc,
+                    keys: keysLocal,
+                    initData: null,
+                    keySessions: []
+                };
+            } else {
+                this.protectionExt.createMediaKeys(keySystemDesc.keysTypeString).then(function(mediaKeys) {
+                    _self.protectionExt.setMediaKey(element, mediaKeys, initData);
+                    keySystems[kid] = {
+                        kID: kid,
+                        contentProtection: contentProtectionData,
+                        keySystem: keySystemDesc,
+                        keys: mediaKeys,
+                        initData: null,
+                        keySessions: []
+                    };
+                }).catch(function(error) {
+                    return error;
+                });
+                keySystems[kid] = {
+                    keySystem: {
+                        needToAddKeySession: function() {
+                            return false;
+                        }
+                    }
+                };
+            }
         },
         removeKeySystem: function(kid) {
             if (kid !== null && keySystems[kid] !== undefined && keySystems[kid].keySessions.length !== 0) {
@@ -6659,6 +6717,14 @@ MediaPlayer.dependencies.ScheduleController = function() {
         self.rulesController.applyRules(rules, self.streamProcessor, callback, fragmentsToLoad, function(currentValue, newValue) {
             return Math.min(currentValue, newValue);
         });
+    }, replaceCanceledPendingRequests = function(canceledRequests) {
+        var ln = canceledRequests.length, request, time, i;
+        for (i = 0; i < ln; i += 1) {
+            request = canceledRequests[i];
+            time = request.startTime + request.duration / 2;
+            request = this.adapter.getFragmentRequestForTime(this.streamProcessor, currentTrackInfo, time, false);
+            this.fragmentController.prepareFragmentForLoading(this, request);
+        }
     }, onGetRequiredFragmentCount = function(result) {
         var self = this;
         fragmentsToLoad = result.value;
@@ -6731,11 +6797,13 @@ MediaPlayer.dependencies.ScheduleController = function() {
         doStop.call(this, false);
     }, onQualityChanged = function(sender, typeValue, oldQuality, newQuality) {
         if (type !== typeValue) return;
-        var self = this;
+        var self = this, canceledReqs;
+        canceledReqs = fragmentModel.cancelPendingRequests(oldQuality);
         currentTrackInfo = self.streamProcessor.getTrackForQuality(newQuality);
         if (currentTrackInfo === null || currentTrackInfo === undefined) {
             throw "Unexpected error!";
         }
+        replaceCanceledPendingRequests.call(self, canceledReqs);
         clearPlayListTraceMetrics(new Date(), MediaPlayer.vo.metrics.PlayList.Trace.REPRESENTATION_SWITCH_STOP_REASON);
     }, addPlaylistTraceMetrics = function() {
         var self = this, currentVideoTime = self.playbackController.getTime(), rate = self.playbackController.getPlaybackRate(), currentTime = new Date();
@@ -8810,7 +8878,7 @@ MediaPlayer.rules.PlaybackTimeRule = function() {
         },
         execute: function(context, callback) {
             var mediaType = context.getMediaInfo().type, streamId = context.getStreamInfo().id, sc = scheduleController[streamId][mediaType], streamProcessor = scheduleController[streamId][mediaType].streamProcessor, track = streamProcessor.getCurrentTrack(), st = seekTarget[streamId] ? seekTarget[streamId][mediaType] : null, p = st ? MediaPlayer.rules.SwitchRequest.prototype.STRONG : MediaPlayer.rules.SwitchRequest.prototype.DEFAULT, rejected = sc.getFragmentModel().getRejectedRequests().shift(), keepIdx = !!rejected && !st, currentTime = this.adapter.getIndexHandlerTime(streamProcessor), playbackTime = streamProcessor.playbackController.getTime(), rejectedEnd = rejected ? rejected.startTime + rejected.duration : null, useRejected = rejected && (rejectedEnd > playbackTime && rejected.startTime <= currentTime || isNaN(currentTime)), range, time, request;
-            time = st || (useRejected ? rejected.startTime : currentTime);
+            time = st || (useRejected ? rejected.startTime + rejected.duration / 2 : currentTime);
             if (isNaN(time)) {
                 callback(new MediaPlayer.rules.SwitchRequest(null, p));
                 return;

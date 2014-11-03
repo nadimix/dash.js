@@ -28,9 +28,9 @@ MediaPlayer.dependencies.ProtectionExtensions.prototype = {
 
         var hasWebKit = ("WebKitMediaKeys" in window),
             hasMs = ("MSMediaKeys" in window),
-            hasMediaSource = ("MediaKeys" in window);
+            hasMediaKeys = ("MediaKeys" in window);
 
-        if (hasMediaSource) {
+        if (hasMediaKeys) {
             return MediaKeys.isTypeSupported(mediaKeysString, codec);
         } else if (hasWebKit) {
             return WebKitMediaKeys.isTypeSupported(mediaKeysString, codec);
@@ -46,9 +46,13 @@ MediaPlayer.dependencies.ProtectionExtensions.prototype = {
 
         var hasWebKit = ("WebKitMediaKeys" in window),
             hasMs = ("MSMediaKeys" in window),
-            hasMediaSource = ("MediaKeys" in window);
+            hasMediaKeys = ("MediaKeys" in window);
 
-        if (hasMediaSource) {
+        if (hasMediaKeys) {
+			if ('create' in MediaKeys) {
+				return MediaKeys.create(mediaKeysString);
+			}
+			
             return new MediaKeys(mediaKeysString);
         } else if (hasWebKit) {
             return new WebKitMediaKeys(mediaKeysString);
@@ -62,13 +66,16 @@ MediaPlayer.dependencies.ProtectionExtensions.prototype = {
     setMediaKey: function (element, mediaKeys, initData) {
         var hasWebKit = ("WebKitSetMediaKeys" in element),
             hasMs = ("msSetMediaKeys" in element),
-            hasStd = ("SetMediaKeys" in element),
+            hasSetMediaKeys = ("SetMediaKeys" in element),
+            hasCamelCaseSetMediaKeys = ("setMediaKeys" in element),
 			hasWebkitGenerateKeyRequest = ("webkitGenerateKeyRequest" in element);
 
-        if (hasStd) {
-            return element.SetMediaKeys(mediaKeys);
-        } else if (hasWebkitGenerateKeyRequest) {
+        if (hasWebkitGenerateKeyRequest) {
             return element.webkitGenerateKeyRequest(mediaKeys.keySystem, initData);
+        } else if (hasSetMediaKeys) {
+            return element.SetMediaKeys(mediaKeys);
+        } else if (hasCamelCaseSetMediaKeys) {
+            return element.setMediaKeys(mediaKeys);
         } else if (hasWebKit) {
             return element.WebKitSetMediaKeys(mediaKeys);
         } else if (hasMs) {
@@ -242,6 +249,9 @@ MediaPlayer.dependencies.ProtectionExtensions.prototype = {
                 isSupported: function (data) {
                     return this.schemeIdUri === data.schemeIdUri.toLowerCase();
 				},
+				usePromises: function () {
+					return false;
+				},
                 needToAddKeySession: playReadyNeedToAddKeySession,
                 getInitData: playreadyGetInitData,
                 getUpdate: playreadyGetUpdate,
@@ -280,6 +290,9 @@ MediaPlayer.dependencies.ProtectionExtensions.prototype = {
                 keysTypeString: "com.microsoft.playready",
                 isSupported: function (data) {
                     return this.schemeIdUri === data.schemeIdUri.toLowerCase() && data.value.toLowerCase() === "cenc";
+				},
+				usePromises: function () {
+					return false;
 				},
                 needToAddKeySession: playReadyNeedToAddKeySession,
                 getInitData: function (/*data*/) {
@@ -326,6 +339,9 @@ MediaPlayer.dependencies.ProtectionExtensions.prototype = {
                 needToAddKeySession: function (/*initData, keySessions*/) {
                     return true;
 				},
+				usePromises: function () {
+					return false;
+				},
                 getInitData: function (/*data*/) {
                     return null;
 				},
@@ -353,6 +369,9 @@ MediaPlayer.dependencies.ProtectionExtensions.prototype = {
                 keysTypeString: "com.widevine.alpha",
                 isSupported: function (data) {
                     return this.schemeIdUri === data.schemeIdUri.toLowerCase();
+				},
+				usePromises: function () {
+					return MediaKeys && 'function' === typeof (MediaKeys.create);
 				},
                 needToAddKeySession: function (/*initData, keySessions*/) {
                     return false;
