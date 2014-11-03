@@ -16,15 +16,21 @@ MediaPlayer.dependencies.ProtectionExtensions = function () {
 
 MediaPlayer.dependencies.ProtectionExtensions.prototype = {
     constructor: MediaPlayer.dependencies.ProtectionExtensions,
+    notify: undefined,
+    subscribe: undefined,
+    unsubscribe: undefined,
+    eventList: {
+        ENAME_KEY_SYSTEM_UPDATE_COMPLETED: "keySystemUpdateCompleted"
+    },
 
     supportsCodec: function (mediaKeysString, codec) {
         "use strict";
 
         var hasWebKit = ("WebKitMediaKeys" in window),
             hasMs = ("MSMediaKeys" in window),
-            hasMediaSource = ("MediaKeys" in window);
+            hasMediaKeys = ("MediaKeys" in window);
 
-        if (hasMediaSource) {
+        if (hasMediaKeys) {
             return MediaKeys.isTypeSupported(mediaKeysString, codec);
         } else if (hasWebKit) {
             return WebKitMediaKeys.isTypeSupported(mediaKeysString, codec);
@@ -40,9 +46,13 @@ MediaPlayer.dependencies.ProtectionExtensions.prototype = {
 
         var hasWebKit = ("WebKitMediaKeys" in window),
             hasMs = ("MSMediaKeys" in window),
-            hasMediaSource = ("MediaKeys" in window);
+            hasMediaKeys = ("MediaKeys" in window);
 
-        if (hasMediaSource) {
+        if (hasMediaKeys) {
+			if ('create' in MediaKeys) {
+				return MediaKeys.create(mediaKeysString);
+			}
+			
             return new MediaKeys(mediaKeysString);
         } else if (hasWebKit) {
             return new WebKitMediaKeys(mediaKeysString);
@@ -56,13 +66,16 @@ MediaPlayer.dependencies.ProtectionExtensions.prototype = {
     setMediaKey: function (element, mediaKeys, initData) {
         var hasWebKit = ("WebKitSetMediaKeys" in element),
             hasMs = ("msSetMediaKeys" in element),
-            hasStd = ("SetMediaKeys" in element),
+            hasSetMediaKeys = ("SetMediaKeys" in element),
+            hasCamelCaseSetMediaKeys = ("setMediaKeys" in element),
 			hasWebkitGenerateKeyRequest = ("webkitGenerateKeyRequest" in element);
 
-        if (hasStd) {
-            return element.SetMediaKeys(mediaKeys);
-        } else if (hasWebkitGenerateKeyRequest) {
+        if (hasWebkitGenerateKeyRequest) {
             return element.webkitGenerateKeyRequest(mediaKeys.keySystem, initData);
+        } else if (hasSetMediaKeys) {
+            return element.SetMediaKeys(mediaKeys);
+        } else if (hasCamelCaseSetMediaKeys) {
+            return element.setMediaKeys(mediaKeys);
         } else if (hasWebKit) {
             return element.WebKitSetMediaKeys(mediaKeys);
         } else if (hasMs) {
@@ -236,6 +249,9 @@ MediaPlayer.dependencies.ProtectionExtensions.prototype = {
                 isSupported: function (data) {
                     return this.schemeIdUri === data.schemeIdUri.toLowerCase();
 				},
+				usePromises: function () {
+					return false;
+				},
                 needToAddKeySession: playReadyNeedToAddKeySession,
                 getInitData: playreadyGetInitData,
                 getUpdate: playreadyGetUpdate,
@@ -274,6 +290,9 @@ MediaPlayer.dependencies.ProtectionExtensions.prototype = {
                 keysTypeString: "com.microsoft.playready",
                 isSupported: function (data) {
                     return this.schemeIdUri === data.schemeIdUri.toLowerCase() && data.value.toLowerCase() === "cenc";
+				},
+				usePromises: function () {
+					return false;
 				},
                 needToAddKeySession: playReadyNeedToAddKeySession,
                 getInitData: function (/*data*/) {
@@ -320,12 +339,15 @@ MediaPlayer.dependencies.ProtectionExtensions.prototype = {
                 needToAddKeySession: function (/*initData, keySessions*/) {
                     return true;
 				},
+				usePromises: function () {
+					return false;
+				},
                 getInitData: function (/*data*/) {
                     return null;
 				},
                 getUpdate: function (sessionId, rawMessage, laUrl, element) {
 					//jshint unused:false
-                    return Q.when(rawMessage);
+                    return rawMessage;
                 },
 				laUrl: function (laUrl) {
 					if (!String.isNullOrEmpty(laUrl)) {
@@ -348,6 +370,9 @@ MediaPlayer.dependencies.ProtectionExtensions.prototype = {
                 isSupported: function (data) {
                     return this.schemeIdUri === data.schemeIdUri.toLowerCase();
 				},
+				usePromises: function () {
+					return MediaKeys && 'function' === typeof (MediaKeys.create);
+				},
                 needToAddKeySession: function (/*initData, keySessions*/) {
                     return false;
 				},
@@ -356,8 +381,7 @@ MediaPlayer.dependencies.ProtectionExtensions.prototype = {
 				},
                 getUpdate: function (sessionId, rawMessage, laUrl, element) {
 					//jshint unused:false
-					var deferred = Q.defer(),
-						xhr = new XMLHttpRequest();
+					var xhr = new XMLHttpRequest();
 					
 					xhr.open('POST', laUrl, true);
 					xhr.responseType = 'arraybuffer';
@@ -367,17 +391,18 @@ MediaPlayer.dependencies.ProtectionExtensions.prototype = {
 							var key = new Uint8Array(xhr.response);
 							element.webkitAddKey('com.widevine.alpha', key, null/*event.initData*/, sessionId);
 							
-							deferred.resolve(key);
+							// self.notify(self.eventList.ENAME_KEY_SYSTEM_UPDATE_COMPLETED, key);
 						} else {
-							deferred.reject('DRM: Widevine update, XHR status is "' + xhr.statusText + '" (' + xhr.status + '), expected to be 200. readyState is ' + xhr.readyState);
+							// self.notify(self.eventList.ENAME_KEY_SYSTEM_UPDATE_COMPLETED, null, new Error('DRM: Widevine update, XHR status is "' + xhr.statusText + '" (' + xhr.status + '), expected to be 200. readyState is ' + xhr.readyState));
+							return;
 						}
 					};
 					
 					xhr.onabort = function () {
-						deferred.reject('DRM: Widevine update, XHR aborted. status is "' + xhr.statusText + '" (' + xhr.status + '), readyState is ' + xhr.readyState);
+						self.notify(self.eventList.ENAME_KEY_SYSTEM_UPDATE_COMPLETED, null, new Error('DRM: Widevine update, XHR aborted. status is "' + xhr.statusText + '" (' + xhr.status + '), readyState is ' + xhr.readyState));
 					};
 					xhr.onerror = function () {
-						deferred.reject('DRM: Widevine update, XHR error. status is "' + xhr.statusText + '" (' + xhr.status + '), readyState is ' + xhr.readyState);
+						self.notify(self.eventList.ENAME_KEY_SYSTEM_UPDATE_COMPLETED, null, new Error('DRM: Widevine update, XHR error. status is "' + xhr.statusText + '" (' + xhr.status + '), readyState is ' + xhr.readyState));
 					};
 					
 					var key,
@@ -393,8 +418,6 @@ MediaPlayer.dependencies.ProtectionExtensions.prototype = {
 					}
 					
 					xhr.send(rawMessage);
-
-					return deferred.promise;
                 },
 				laUrl: function (laUrl) {
 					if (!String.isNullOrEmpty(laUrl)) {

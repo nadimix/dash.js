@@ -50,20 +50,47 @@ MediaPlayer.models.ProtectionModel = function () {
         },
 
         addKeySystem: function (kid, contentProtectionData, keySystemDesc, initData) {
-            var keysLocal = null;
+            var _self = this,
+					keysLocal = null;
 
-            keysLocal = this.protectionExt.createMediaKeys(keySystemDesc.keysTypeString);
+			if (!keySystemDesc.usePromises()) {
+				keysLocal = this.protectionExt.createMediaKeys(keySystemDesc.keysTypeString);
 
-            this.protectionExt.setMediaKey(element, keysLocal, initData);
+				this.protectionExt.setMediaKey(element, keysLocal, initData);
 
-            keySystems[kid] = {
-                kID : kid,
-                contentProtection : contentProtectionData,
-                keySystem : keySystemDesc,
-                keys : keysLocal,
-                initData : null,
-                keySessions : []
-            };
+				keySystems[kid] = {
+					kID : kid,
+					contentProtection : contentProtectionData,
+					keySystem : keySystemDesc,
+					keys : keysLocal,
+					initData : null,
+					keySessions : []
+				};
+			}
+			else {
+				this.protectionExt.createMediaKeys(keySystemDesc.keysTypeString).then(function (mediaKeys) {
+					_self.protectionExt.setMediaKey(element, mediaKeys, initData);
+					
+					keySystems[kid] = {
+						kID : kid,
+						contentProtection : contentProtectionData,
+						keySystem : keySystemDesc,
+						keys : mediaKeys,
+						initData : null,
+						keySessions : []
+					};
+				}).catch(function (error) {
+					return error;
+				});
+				
+				keySystems[kid] = {
+					keySystem: {
+						needToAddKeySession: function () {
+							return false;
+						}
+					}
+				};
+			}
         },
 
         removeKeySystem: function (kid) {
