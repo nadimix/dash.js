@@ -532,6 +532,20 @@ app.controller('DashController', function($scope, Sources, Notes, Contributors, 
     player.addEventListener("metricUpdated", metricUpdated.bind(this));
 
     player.attachView(video);
+    player.setProtectionData({
+        licenseRequest: {
+            'com.microsoft.playready': {
+                cdmData: null,
+                laUrl: null,
+                headers: null
+            },
+            'com.widevine.alpha': {
+                cdmData: null,
+                laUrl: null,
+                headers: null
+            }
+        }
+    });
     player.setAutoPlay(true);
 
     ////////////////////////////////////////

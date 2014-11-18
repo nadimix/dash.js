@@ -21,7 +21,7 @@ MediaPlayer.dependencies.ProtectionController = function () {
             self.protectionModel.removeKeySystem(kid);
         },
 
-        selectKeySystem = function (mediaInfo) {
+        selectKeySystem = function (mediaInfo, event) {
             var self = this,
                 codec = mediaInfo.codec,
                 contentProtection = mediaInfo.contentProtection;
@@ -36,7 +36,7 @@ MediaPlayer.dependencies.ProtectionController = function () {
                             kid = "unknown";
                         }
 
-                        self.protectionModel.addKeySystem(kid, contentProtection[cp], keySystems[ks]);
+                        self.protectionModel.addKeySystem(kid, contentProtection[cp], keySystems[ks], event.initData);
 
                         self.debug.log("DRM: Selected Key System: " + keySystems[ks].keysTypeString + " For KID: " + kid);
 
@@ -47,7 +47,7 @@ MediaPlayer.dependencies.ProtectionController = function () {
             throw new Error("DRM: The protection system for this content is not supported.");
         },
 
-        ensureKeySession = function (kid, codec, eventInitData) {
+        ensureKeySession = function (kid, codec, event) {
             var self = this,
                 session = null,
                 initData = null;
@@ -58,8 +58,8 @@ MediaPlayer.dependencies.ProtectionController = function () {
 
             initData = self.protectionModel.getInitData(kid);
 
-            if (!initData && !!eventInitData) {
-                initData = eventInitData;
+            if (!initData && !!event.initData) {
+                initData = event.initData;
                 self.debug.log("DRM: Using initdata from needskey event. length: " + initData.length);
             }
             else if (!!initData){
@@ -75,8 +75,8 @@ MediaPlayer.dependencies.ProtectionController = function () {
             }
         },
 
-        updateFromMessage = function (kid, session, msg, laURL) {
-            this.protectionModel.updateFromMessage(kid, session, msg, laURL);
+        updateFromMessage = function (kid, event) {
+            this.protectionModel.updateFromMessage(kid, event);
         };
 
     return {
@@ -86,11 +86,10 @@ MediaPlayer.dependencies.ProtectionController = function () {
         protectionModel : undefined,
         protectionExt : undefined,
 
-        setup : function () {
-            keySystems = this.protectionExt.getKeySystems();
-        },
+        setup : function () { },
 
-        init: function (videoModel, protectionModel) {
+        init: function (videoModel, protectionModel, protectionData) {
+            keySystems = this.protectionExt.getKeySystems(protectionData);
             this.videoModel = videoModel;
             this.protectionModel = protectionModel;
             element = this.videoModel.getElement();

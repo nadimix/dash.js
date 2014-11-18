@@ -24,6 +24,7 @@
         //TODO set correct value for threshold
         STREAM_BUFFER_END_THRESHOLD = 6,
         STREAM_END_THRESHOLD = 0.2,
+        protectionData,
         autoPlay = true,
         isStreamSwitchingInProgress = false,
 
@@ -259,7 +260,7 @@
                         stream.setPlaybackController(playbackCtrl);
                         playbackCtrl.subscribe(playbackCtrl.eventList.ENAME_PLAYBACK_ERROR, stream);
                         playbackCtrl.subscribe(playbackCtrl.eventList.ENAME_PLAYBACK_METADATA_LOADED, stream);
-                        stream.initProtection();
+                        stream.initProtection(protectionData);
                         stream.setAutoPlay(autoPlay);
                         stream.load(manifest);
                         stream.subscribe(stream.eventList.ENAME_STREAM_UPDATED, self);
@@ -334,6 +335,10 @@
             this.playbackTimeUpdated = onTimeupdate;
         },
 
+        setProtectionData: function (value) {
+            protectionData = value;
+        },
+
         setAutoPlay: function (value) {
             autoPlay = value;
         },
@@ -382,6 +387,7 @@
             this.adapter.reset();
             isStreamSwitchingInProgress = false;
             activeStream = null;
+            protectionData = null;
         },
 
         play: play,
